@@ -1,0 +1,2715 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Mon carnet de bord — Yoda 0.1</title>
+
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#020617" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Carnet de bord" />
+<link rel="icon" href="icons/icon-192.png" />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  html, body, #root { height: 100%; background:#020617; }
+  ::-webkit-scrollbar { display:none; }
+  .no-scrollbar::-webkit-scrollbar{display:none;}
+  .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/jsx-source" id="app-source">
+const { useState, useEffect, useMemo, useCallback } = React;
+const { createRoot } = ReactDOM;
+
+/* =========================================================================
+   CONFIGURATION FIREBASE
+   ========================================================================= */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAa4r2mmcTx7ekLbmG9FdSMPGWEYvBdJus",
+  authDomain: "mon-carnet-de-bord-42b20.firebaseapp.com",
+  projectId: "mon-carnet-de-bord-42b20",
+  storageBucket: "mon-carnet-de-bord-42b20.firebasestorage.app",
+  messagingSenderId: "868879754984",
+  appId: "1:868879754984:web:80bd60f39dc245c9e90b5d",
+  measurementId: "G-BQQLLP9RHC",
+};
+
+// Adresses e-mail ayant les droits administrateur (accès total + gestion des comptes)
+const ADMIN_EMAILS = ["madi.62.fm@gmail.com"];
+
+// Durée de l'essai gratuit automatique pour tout nouveau compte (en jours)
+const DUREE_ESSAI_JOURS = 31;
+
+// Lien de paiement (Stripe Payment Link, ou équivalent) affiché une fois l'essai terminé
+const LIEN_PAIEMENT = "https://buy.stripe.com/REMPLACE_MOI";
+
+// Adresse de la version web (HTML) de l'application, à remplacer une fois hébergée (Netlify, GitHub Pages...)
+const LIEN_WEB_APP = "https://REMPLACE-PAR-TON-LIEN-NETLIFY.netlify.app";
+
+// Version actuelle de l'application (à incrémenter à chaque nouvelle compilation envoyée)
+const APP_VERSION = "1.0.0";
+
+// Lien vers le dernier APK à télécharger (Google Drive, GitHub Releases, ton hébergement...)
+const LIEN_TELECHARGEMENT_APK = "https://REMPLACE-PAR-TON-LIEN-DE-TELECHARGEMENT-APK";
+
+const firebaseConfigueValide = FIREBASE_CONFIG.apiKey !== "REMPLACE_MOI";
+let firebaseApp = null, auth = null, db = null;
+if (firebaseConfigueValide) {
+  firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
+  auth = firebase.auth();
+  db = firebase.firestore();
+}
+
+
+
+/* =========================================================================
+   MON CARNET DE BORD — Yoda 0.1
+   Créée par FARDOUX Mathieu
+   Version application web installable (PWA) — stockage local sur l'appareil
+   ========================================================================= */
+
+/* ---------- Icônes (SVG légères, sans dépendance externe) ---------- */
+
+function IconBase({ size = 18, className = "", children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {children}
+    </svg>
+  );
+}
+const Play = (p) => <IconBase {...p}><polygon points="6 3 20 12 6 21 6 3" /></IconBase>;
+const Square = (p) => <IconBase {...p}><rect x="4" y="4" width="16" height="16" rx="2" /></IconBase>;
+const Coffee = (p) => <IconBase {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></IconBase>;
+const Save = (p) => <IconBase {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></IconBase>;
+const Trash2 = (p) => <IconBase {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></IconBase>;
+const Mail = (p) => <IconBase {...p}><rect x="2" y="4" width="20" height="16" rx="2" /><polyline points="22 6 12 13 2 6" /></IconBase>;
+const MapPin = (p) => <IconBase {...p}><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></IconBase>;
+const Star = (p) => <IconBase {...p}><polygon points="12 2 15 9 22 9 16.5 13.5 18.5 21 12 17 5.5 21 7.5 13.5 2 9 9 9 12 2" /></IconBase>;
+const Clock = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></IconBase>;
+const Moon = (p) => <IconBase {...p}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></IconBase>;
+const Euro = (p) => <IconBase {...p}><path d="M17 7a6.5 6.5 0 1 0 0 10" /><line x1="4" y1="10" x2="14" y2="10" /><line x1="4" y1="14" x2="12" y2="14" /></IconBase>;
+const Calendar = (p) => <IconBase {...p}><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></IconBase>;
+const Settings = (p) => <IconBase {...p}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></IconBase>;
+const FileText = (p) => <IconBase {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="16" y2="17" /></IconBase>;
+const Plus = (p) => <IconBase {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></IconBase>;
+const ChevronLeft = (p) => <IconBase {...p}><polyline points="15 18 9 12 15 6" /></IconBase>;
+const ChevronRight = (p) => <IconBase {...p}><polyline points="9 18 15 12 9 6" /></IconBase>;
+const AlertCircle = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></IconBase>;
+const CheckCircle2 = (p) => <IconBase {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></IconBase>;
+const Wrench = (p) => <IconBase {...p}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></IconBase>;
+const Fuel = (p) => <IconBase {...p}><line x1="3" y1="22" x2="15" y2="22" /><line x1="4" y1="9" x2="14" y2="9" /><path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18" /><path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2 2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5" /></IconBase>;
+const Search = (p) => <IconBase {...p}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></IconBase>;
+const Users = (p) => <IconBase {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></IconBase>;
+const LogOut = (p) => <IconBase {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></IconBase>;
+
+/* ---------- Stockage local (remplace le stockage Claude par localStorage) ---------- */
+
+const storage = {
+  get(key) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  },
+  set(key, value) {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch (e) { return false; }
+  },
+};
+
+/* ---------- Constantes & valeurs par défaut ---------- */
+
+const DEFAULT_RATES = {
+  tauxHoraire: 12.00,
+  casseCroute: 8.87,
+  casseCrouteEtr: 10.46,
+  repas: 16.36,
+  repasEtr: 19.30,
+  decouche: 27.08,
+  decoucheEtr: 31.95,
+  weekend: 0,
+  weekendEtr: 0,
+  coefNet: 0.78,
+  seuil1: 152, // fin taux normal
+  seuil2: 169, // fin équivalence 25%
+  seuil3: 186, // fin HS 25%
+  seuil4: 250, // fin HS 50%
+  // Réglementation amplitude & repos (convention collective transport routier)
+  ampliBase: 13,        // amplitude normale max (h) — illimitée
+  ampliExcep: 15,        // amplitude exceptionnelle max (h)
+  ampliExcepQuota: 3,     // occurrences autorisées par semaine
+  reposNormal: 11,        // repos journalier consécutif normal (h)
+  reposReduit: 9,         // repos réduit consécutif si compensé (h)
+  reposCompensation: 3,    // coupure de compensation minimale (h)
+  // Heures supplémentaires activables & banque d'heures
+  activerHS25: true,
+  activerHS50: true,
+  activerHS100: false,
+  seuilBanque: 230,    // plafond payé par l'employeur (h/mois) — au-delà, versement en banque
+  // Mode routier — fin impérative de l'amplitude & alertes
+  activerModeRoutier: false,
+  routierHeureJourDebut: "05:00",
+  routierHeureJourFin: "21:00",
+  routierAmplitudeJour: 15,
+  routierAmplitudeNuit: 13,
+  alerteMinutes: 15,
+};
+
+const DEFAULT_THEME = {
+  accent: "#f59e0b",
+  fond: "#020617",
+  texte: "#f1f5f9",
+};
+
+const DEFAULT_STATUTS = [
+  { id: "poste", label: "En poste", couleur: "#059669" },
+  { id: "formation", label: "Formation", couleur: "#0284c7" },
+  { id: "maladie", label: "Maladie", couleur: "#e11d48" },
+  { id: "accident", label: "Accident", couleur: "#dc2626" },
+  { id: "vacances", label: "Vacances", couleur: "#7c3aed" },
+  { id: "ferie", label: "Jour férié", couleur: "#c026d3" },
+  { id: "repos", label: "Repos planning", couleur: "#475569" },
+];
+
+const DEFAULT_GARAGE = {
+  tracteur: { immatriculation: "", kmActuel: "" },
+  remorque: { immatriculation: "" },
+  entretiens: [],
+  depannages: [],
+};
+
+const DEFAULT_CATEGORIES_ENTRETIEN = ["Vidange", "Freins", "Pneus", "Révision", "Courroie", "Autre"];
+const DEFAULT_CATEGORIES_DEPANNAGE = ["Crevaison", "Panne", "Accident", "Autre"];
+
+const DEFAULT_CARBURANT = { pleins: [] };
+
+const DEFAULT_PUBLICITES = {
+  actif: true,
+  intervalleSecondes: 60,
+  annonces: [
+    { id: "pub-defaut", texte: "Espace publicitaire disponible — configure tes annonces dans Réglages", lien: "" },
+  ],
+};
+
+const emptyEntry = (date) => ({
+  id: date + "-" + Math.random().toString(36).slice(2, 8),
+  date,
+  debutService: "",
+  finService: "",
+  pauses: [],
+  pauseManuelle: "",
+  casseCroute: { actif: false, etranger: false },
+  repasMidi: { actif: false, etranger: false },
+  repasSoir: { actif: false, etranger: false },
+  decouche: { actif: false, etranger: false, note: 0, lat: null, lon: null, lieu: "", adresse: "" },
+  weekend: { actif: false, etranger: false, montant: "", lat: null, lon: null, lieu: "", adresse: "" },
+  commentaire: "",
+});
+
+/* ---------- Utilitaires de temps ---------- */
+
+function nowLocalISO() {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function todayISODate() {
+  return nowLocalISO().slice(0, 10);
+}
+
+function minutesBetween(a, b) {
+  if (!a || !b) return 0;
+  const diff = (new Date(b) - new Date(a)) / 60000;
+  return diff > 0 ? diff : 0;
+}
+
+function fmtHM(totalMinutes) {
+  const m = Math.round(totalMinutes || 0);
+  const sign = m < 0 ? "-" : "";
+  const abs = Math.abs(m);
+  const h = Math.floor(abs / 60);
+  const mm = abs % 60;
+  return `${sign}${h}h${String(mm).padStart(2, "0")}`;
+}
+
+function minutesToHours(m) {
+  return (m || 0) / 60;
+}
+
+// Extrait l'heure "HH:MM" d'une chaîne datetime-local (évite les soucis de fuseau horaire)
+function fmtHeure(iso) {
+  if (!iso) return "--:--";
+  return iso.slice(11, 16);
+}
+
+// Découpe la période de service en segments de travail, en excluant les pauses,
+// pour visualiser précisément à quelle heure chaque portion de temps de service se termine.
+function computeSegments(entry, liveNow) {
+  if (!entry.debutService) return [];
+  const finEffective = entry.finService || liveNow || "";
+  if (!finEffective) return [];
+
+  const pauses = entry.pauses
+    .filter((p) => p.debut)
+    .slice()
+    .sort((a, b) => a.debut.localeCompare(b.debut));
+
+  const segments = [];
+  let cursor = entry.debutService;
+
+  for (const p of pauses) {
+    if (p.debut > cursor) {
+      segments.push({ debut: cursor, fin: p.debut, enCours: false });
+    }
+    if (!p.fin) {
+      // Pause en cours : le service est actuellement suspendu, pas de nouveau segment
+      return segments;
+    }
+    cursor = p.fin > cursor ? p.fin : cursor;
+  }
+
+  if (cursor < finEffective) {
+    segments.push({ debut: cursor, fin: finEffective, enCours: !entry.finService });
+  }
+  return segments;
+}
+
+// Calcule la fin impérative de l'amplitude et le temps de service restant,
+// selon l'heure de début : départ en journée (05h-21h par défaut) → amplitude 15h,
+// départ de nuit (21h-05h) → amplitude 13h. Seuils et durées modifiables en Réglages.
+function computeModeRoutier(entry, rates, liveNow, serviceMin) {
+  if (!rates.activerModeRoutier || !entry.debutService) return null;
+
+  const heureDebut = entry.debutService.slice(11, 16);
+  const enJournee = heureDebut >= rates.routierHeureJourDebut && heureDebut < rates.routierHeureJourFin;
+  const amplitudeMaxH = enJournee ? rates.routierAmplitudeJour : rates.routierAmplitudeNuit;
+
+  const debutDate = new Date(entry.debutService);
+  const finImperativeDate = new Date(debutDate.getTime() + amplitudeMaxH * 3600000);
+  const finImperativeHHMM = String(finImperativeDate.getHours()).padStart(2, "0") + ":" + String(finImperativeDate.getMinutes()).padStart(2, "0");
+
+  const now = new Date(liveNow);
+  const tempsRestantAmplitudeMin = (finImperativeDate - now) / 60000;
+  const tempsServiceRestantMin = amplitudeMaxH * 60 - serviceMin;
+
+  const niveau = (minutesRestantes) => {
+    if (minutesRestantes <= 5) return "critique";
+    if (minutesRestantes <= rates.alerteMinutes) return "alerte";
+    return "ok";
+  };
+
+  return {
+    enJournee, amplitudeMaxH, finImperativeHHMM, tempsRestantAmplitudeMin, tempsServiceRestantMin,
+    niveauAmplitude: niveau(tempsRestantAmplitudeMin),
+    niveauService: niveau(tempsServiceRestantMin),
+  };
+}
+
+
+// chevauchement d'un intervalle [start,end] avec les plages de nuit (21h-6h)
+function nightOverlapMinutes(startStr, endStr) {
+  if (!startStr || !endStr) return 0;
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  if (end <= start) return 0;
+
+  let total = 0;
+  let cursor = new Date(start);
+  cursor.setDate(cursor.getDate() - 1);
+  cursor.setHours(0, 0, 0, 0);
+
+  const lastDay = new Date(end);
+  lastDay.setHours(0, 0, 0, 0);
+
+  while (cursor <= lastDay) {
+    const nightStart = new Date(cursor);
+    nightStart.setHours(21, 0, 0, 0);
+    const nightEnd = new Date(cursor);
+    nightEnd.setDate(nightEnd.getDate() + 1);
+    nightEnd.setHours(6, 0, 0, 0);
+
+    const os = new Date(Math.max(start.getTime(), nightStart.getTime()));
+    const oe = new Date(Math.min(end.getTime(), nightEnd.getTime()));
+    if (oe > os) total += (oe - os) / 60000;
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return total;
+}
+
+/* ---------- Calculs d'une journée ---------- */
+
+function computeEntry(entry, rates, liveNow) {
+  const enCoursService = !!(entry.debutService && !entry.finService);
+  const finEffective = entry.finService || (enCoursService && liveNow ? liveNow : "");
+  const amplitudeMin = minutesBetween(entry.debutService, finEffective);
+
+  const pausesCompletes = entry.pauses.filter((p) => p.debut && p.fin);
+  const pauseEnCours = entry.pauses.find((p) => p.debut && !p.fin);
+  let pauseCalcMin = pausesCompletes.reduce(
+    (s, p) => s + minutesBetween(p.debut, p.fin), 0
+  );
+  if (pauseEnCours && liveNow) pauseCalcMin += minutesBetween(pauseEnCours.debut, liveNow);
+
+  const pauseManuelleNum =
+    entry.pauseManuelle !== "" && entry.pauseManuelle !== null && entry.pauseManuelle !== undefined
+      ? Number(entry.pauseManuelle)
+      : null;
+  const pauseMin = pauseManuelleNum !== null && !isNaN(pauseManuelleNum) ? pauseManuelleNum : pauseCalcMin;
+
+  const serviceMin = Math.max(0, amplitudeMin - pauseMin);
+
+  const nightGrossMin = nightOverlapMinutes(entry.debutService, finEffective);
+  let nightPauseMin = pausesCompletes.reduce(
+    (s, p) => s + nightOverlapMinutes(p.debut, p.fin), 0
+  );
+  if (pauseEnCours && liveNow) nightPauseMin += nightOverlapMinutes(pauseEnCours.debut, liveNow);
+  const nightWorkedMin = Math.max(0, nightGrossMin - nightPauseMin);
+
+  // Frais de route du jour
+  let frais = 0;
+  if (entry.casseCroute.actif) frais += entry.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute;
+  if (entry.repasMidi.actif) frais += entry.repasMidi.etranger ? rates.repasEtr : rates.repas;
+  if (entry.repasSoir.actif) frais += entry.repasSoir.etranger ? rates.repasEtr : rates.repas;
+  if (entry.decouche.actif) frais += entry.decouche.etranger ? rates.decoucheEtr : rates.decouche;
+  if (entry.weekend.actif) frais += Number(entry.weekend.montant) || 0;
+
+  return {
+    enCoursService,
+    pauseEnCours: !!pauseEnCours,
+    finEffective,
+    segments: computeSegments(entry, liveNow),
+    amplitudeMin,
+    pauseMin,
+    pauseCalcMin,
+    serviceMin,
+    nightWorkedMin,
+    frais,
+  };
+}
+
+/* ---------- Regroupement mensuel & paie ---------- */
+
+function computeMonthPay(entriesForMonth, rates, liveNow) {
+  let serviceMin = 0, nightMin = 0, frais = 0;
+  entriesForMonth.forEach((e) => {
+    const c = computeEntry(e, rates, liveNow);
+    serviceMin += c.serviceMin;
+    nightMin += c.nightWorkedMin;
+    frais += c.frais;
+  });
+
+  const H = minutesToHours(serviceMin);
+  const nightH = minutesToHours(nightMin);
+
+  // Cascade : si un palier est désactivé, ses heures gardent le taux du palier actif précédent
+  const tauxHS25 = rates.activerHS25 ? 1.25 : 1.0;
+  const tauxHS50 = rates.activerHS50 ? 1.5 : tauxHS25;
+  const tauxHS100 = rates.activerHS100 ? 2.0 : tauxHS50;
+
+  const seuilBanque = Math.max(rates.seuilBanque, rates.seuil4);
+
+  const b0 = Math.min(H, rates.seuil1);
+  const b1 = Math.max(0, Math.min(H, rates.seuil2) - rates.seuil1);
+  const b2 = Math.max(0, Math.min(H, rates.seuil3) - rates.seuil2);
+  const b3 = Math.max(0, Math.min(H, rates.seuil4) - rates.seuil3);
+  const b4 = Math.max(0, Math.min(H, seuilBanque) - rates.seuil4); // palier 100% (ou taux cascade)
+  const bBanque = Math.max(0, H - seuilBanque); // au-delà du plafond payé : versé en banque, non payé ce mois
+
+  const payNormal = b0 * rates.tauxHoraire;
+  const payEquiv = b1 * rates.tauxHoraire * 1.25;
+  const payHS25 = b2 * rates.tauxHoraire * tauxHS25;
+  const payHS50 = b3 * rates.tauxHoraire * tauxHS50;
+  const payHS100 = b4 * rates.tauxHoraire * tauxHS100;
+  const payNight = nightH * rates.tauxHoraire * 0.20; // majoration de nuit, en plus
+
+  const salaireBrut = payNormal + payEquiv + payHS25 + payHS50 + payHS100 + payNight;
+  const salaireNet = salaireBrut * rates.coefNet;
+  const netTotal = salaireNet + frais;
+  const brutIndicatif = salaireBrut + frais;
+
+  return {
+    H, nightH, frais,
+    b0, b1, b2, b3, b4, bBanque,
+    tauxHS25, tauxHS50, tauxHS100,
+    payNormal, payEquiv, payHS25, payHS50, payHS100, payNight,
+    salaireBrut, salaireNet, netTotal, brutIndicatif,
+  };
+}
+
+/* ---------- Périodes ---------- */
+
+function startOfWeek(d) {
+  const date = new Date(d);
+  const day = (date.getDay() + 6) % 7; // lundi = 0
+  date.setDate(date.getDate() - day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function inPeriod(dateStr, periodType, refDate) {
+  const d = new Date(dateStr + "T12:00:00");
+  const ref = new Date(refDate + "T12:00:00");
+  if (periodType === "jour") {
+    return dateStr === refDate;
+  }
+  if (periodType === "semaine") {
+    const s = startOfWeek(ref);
+    const e = new Date(s); e.setDate(e.getDate() + 6);
+    return d >= s && d <= e;
+  }
+  if (periodType === "mois") {
+    return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth();
+  }
+  if (periodType === "annee") {
+    return d.getFullYear() === ref.getFullYear();
+  }
+  return false;
+}
+
+/* ---------- Conformité amplitude & repos ---------- */
+
+function classifyAmplitude(amplitudeH, rates) {
+  if (amplitudeH > rates.ampliExcep) return "depassement";
+  if (amplitudeH > rates.ampliBase) return "exceptionnelle";
+  return "normale";
+}
+
+function longestPauseMinutes(entry) {
+  return entry.pauses
+    .filter((p) => p.debut && p.fin)
+    .reduce((max, p) => Math.max(max, minutesBetween(p.debut, p.fin)), 0);
+}
+
+// Construit, pour une liste de journées triées, le statut de repos entre chaque
+// journée et la suivante, ainsi que la classification d'amplitude de chaque jour.
+function buildConformite(entries, rates, liveNow) {
+  const sorted = entries
+    .filter((e) => e.debutService)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return sorted.map((entry, idx) => {
+    const c = computeEntry(entry, rates, liveNow);
+    const amplitudeH = minutesToHours(c.amplitudeMin);
+    const classe = classifyAmplitude(amplitudeH, rates);
+
+    const next = sorted[idx + 1];
+    const finRef = entry.finService || (c.enCoursService ? c.finEffective : "");
+    let reposMin = null;
+    let reposStatus = "inconnu";
+    if (next && next.debutService && finRef) {
+      reposMin = minutesBetween(finRef, next.debutService);
+      const reposH = minutesToHours(reposMin);
+      const longuePause = longestPauseMinutes(entry) / 60;
+      if (reposH >= rates.reposNormal) reposStatus = "normal";
+      else if (reposH >= rates.reposReduit && longuePause >= rates.reposCompensation) reposStatus = "fractionne";
+      else reposStatus = "insuffisant";
+    }
+
+    return { date: entry.date, amplitudeH, classe, reposMin, reposStatus, enCours: c.enCoursService };
+  });
+}
+
+
+
+function StarRating({ value, onChange }) {
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(value === n ? 0 : n)}
+          className="p-0.5"
+          aria-label={`${n} étoile${n > 1 ? "s" : ""}`}
+        >
+          <Star
+            size={22}
+            className={n <= value ? "fill-amber-400 text-amber-400" : "text-slate-500"}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Bouton horodatage ---------- */
+
+function TimeButton({ icon: Icon, label, onClick, active, color }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 min-w-[140px] flex flex-col items-center justify-center gap-1.5 rounded-xl px-3 py-4 border transition-all active:scale-95 ${
+        active
+          ? `${color} text-white border-transparent shadow-lg`
+          : "bg-slate-800/60 text-slate-300 border-slate-700 hover:border-slate-500"
+      }`}
+    >
+      <Icon size={22} />
+      <span className="text-xs font-semibold tracking-wide uppercase">{label}</span>
+    </button>
+  );
+}
+
+/* ---------- Champ heure éditable ---------- */
+
+function DateTimeField({ label, value, onChange }) {
+  return (
+    <label className="flex flex-col gap-1 text-xs text-slate-400">
+      <span className="uppercase tracking-wide">{label}</span>
+      <input
+        type="datetime-local"
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+      />
+    </label>
+  );
+}
+
+/* ---------- Carte de statistique ---------- */
+
+function StatCard({ icon: Icon, label, value, sub, accent }) {
+  return (
+    <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 flex flex-col gap-1 min-w-[110px] flex-1">
+      <div className="flex items-center gap-1.5 text-slate-400 text-[11px] uppercase tracking-wide">
+        <Icon size={13} className={accent} />
+        {label}
+      </div>
+      <div className="text-xl font-bold text-slate-50 font-mono">{value}</div>
+      {sub && <div className="text-[11px] text-slate-500">{sub}</div>}
+    </div>
+  );
+}
+
+/* =========================================================================
+   APPLICATION PRINCIPALE
+   ========================================================================= */
+
+function MonCarnetDeBord({ user, isAdmin, onLogout }) {
+  const [tab, setTab] = useState("pointage");
+  const [entries, setEntries] = useState([]);
+  const [rates, setRates] = useState(DEFAULT_RATES);
+  const [selectedDate, setSelectedDate] = useState(todayISODate());
+  const [loaded, setLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
+  const [geoStatus, setGeoStatus] = useState("");
+
+  const [periodType, setPeriodType] = useState("semaine");
+  const [refDate, setRefDate] = useState(todayISODate());
+  const [payMonth, setPayMonth] = useState(todayISODate().slice(0, 7));
+  const [liveTick, setLiveTick] = useState(0);
+  const [semaineConformite, setSemaineConformite] = useState(todayISODate());
+  const [banque, setBanque] = useState({ soldeDepart: 0, tauxDepart: 1.5, mouvements: [] });
+  const [planning, setPlanning] = useState({});
+  const [statuts, setStatuts] = useState(DEFAULT_STATUTS);
+  const [garage, setGarage] = useState(DEFAULT_GARAGE);
+  const [categoriesEntretien, setCategoriesEntretien] = useState(DEFAULT_CATEGORIES_ENTRETIEN);
+  const [categoriesDepannage, setCategoriesDepannage] = useState(DEFAULT_CATEGORIES_DEPANNAGE);
+  const [carburant, setCarburant] = useState(DEFAULT_CARBURANT);
+  const [theme, setTheme] = useState(DEFAULT_THEME);
+  const [publicites, setPublicites] = useState(DEFAULT_PUBLICITES);
+  const [pubIndex, setPubIndex] = useState(0);
+  const [sansPub, setSansPub] = useState(false);
+  const [versionDistante, setVersionDistante] = useState({ derniereVersion: APP_VERSION, lien: LIEN_TELECHARGEMENT_APK });
+  const [nouvelleVersionForm, setNouvelleVersionForm] = useState({ derniereVersion: "", lien: "" });
+
+  // Vérifie s'il existe une version plus récente que celle installée
+  const verifierMiseAJour = async () => {
+    if (!firebaseConfigueValide || !db) return;
+    try {
+      const snap = await db.collection("config").doc("version").get();
+      if (snap.exists) {
+        setVersionDistante({ derniereVersion: snap.data().derniereVersion || APP_VERSION, lien: snap.data().lien || LIEN_TELECHARGEMENT_APK });
+        setNouvelleVersionForm({ derniereVersion: snap.data().derniereVersion || "", lien: snap.data().lien || "" });
+      }
+    } catch (err) { /* pas de réseau — on garde la version connue */ }
+  };
+  useEffect(() => { verifierMiseAJour(); }, []);
+
+  const publierNouvelleVersion = async () => {
+    try {
+      if (firebaseConfigueValide && db) {
+        await db.collection("config").doc("version").set({
+          derniereVersion: nouvelleVersionForm.derniereVersion || APP_VERSION,
+          lien: nouvelleVersionForm.lien || LIEN_TELECHARGEMENT_APK,
+        });
+        setSaveStatus("Nouvelle version publiée ✓");
+        verifierMiseAJour();
+      }
+    } catch (err) {
+      setSaveStatus("Échec de la publication de version");
+    }
+    setTimeout(() => setSaveStatus(""), 2000);
+  };
+
+  const miseAJourDisponible = versionDistante.derniereVersion && versionDistante.derniereVersion !== APP_VERSION;
+
+  // Charge les publicités partagées depuis Firestore (visibles par tous), avec repli sur le stockage local
+  useEffect(() => {
+    (async () => {
+      if (firebaseConfigueValide && db) {
+        try {
+          const snap = await db.collection("config").doc("publicites").get();
+          if (snap.exists) { setPublicites({ ...DEFAULT_PUBLICITES, ...snap.data() }); return; }
+        } catch (err) { /* repli local ci-dessous */ }
+      }
+      try { const p = storage.get(ns("publicites")); if (p) setPublicites({ ...DEFAULT_PUBLICITES, ...p }); } catch (err) {}
+    })();
+  }, []);
+
+  // Vérifie si l'utilisateur courant est marqué "sans pub" par l'administrateur
+  useEffect(() => {
+    (async () => {
+      if (!user || !db) return;
+      try {
+        const snap = await db.collection("users").doc(user.uid).get();
+        if (snap.exists) setSansPub(!!snap.data().sansPub);
+      } catch (err) { /* ignore */ }
+    })();
+  }, [user]);
+
+  const enregistrerPublicitesPartagees = async () => {
+    try {
+      if (firebaseConfigueValide && db) {
+        await db.collection("config").doc("publicites").set(publicites);
+        setSaveStatus("Publicités publiées ✓");
+      } else {
+        setSaveStatus("Firebase non configuré — sauvegarde locale uniquement");
+      }
+    } catch (err) {
+      setSaveStatus("Échec de la publication");
+    }
+    setTimeout(() => setSaveStatus(""), 2000);
+  };
+  const [planningMois, setPlanningMois] = useState(todayISODate().slice(0, 7));
+
+  // Rafraîchit l'affichage toutes les 30 secondes pour que l'amplitude,
+  // le temps de service et la pause en cours avancent automatiquement.
+  useEffect(() => {
+    const interval = setInterval(() => setLiveTick((t) => t + 1), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  /* ---------- Espace de stockage propre à l'utilisateur connecté ---------- */
+  const ns = (key) => `carnet-${user?.uid || "local"}-${key}`;
+
+  /* ---------- Chargement initial (cloud en priorité si connecté, sinon local) ---------- */
+  useEffect(() => {
+    (async () => {
+      let donneesCloud = null;
+      if (user && firebaseConfigueValide && db) {
+        try {
+          const snap = await db.collection("users").doc(user.uid).get();
+          if (snap.exists && snap.data().carnetData) {
+            donneesCloud = JSON.parse(snap.data().carnetData);
+          }
+        } catch (err) { /* pas de réseau ou pas de données cloud — repli local ci-dessous */ }
+      }
+      const lire = (cle, defaut) => {
+        if (donneesCloud && donneesCloud[cle] !== undefined) return donneesCloud[cle];
+        try { const v = storage.get(ns(cle.replace(/([A-Z])/g, "-$1").toLowerCase())); return v ?? defaut; } catch (err) { return defaut; }
+      };
+      setEntries(lire("entries", []));
+      setRates({ ...DEFAULT_RATES, ...lire("rates", {}) });
+      setBanque(lire("banque", { soldeDepart: 0, tauxDepart: 1.5, mouvements: [] }));
+      setPlanning(lire("planning", {}));
+      setStatuts(lire("statuts", DEFAULT_STATUTS));
+      setGarage({ ...DEFAULT_GARAGE, ...lire("garage", {}) });
+      setCategoriesEntretien(lire("categoriesEntretien", DEFAULT_CATEGORIES_ENTRETIEN));
+      setCategoriesDepannage(lire("categoriesDepannage", DEFAULT_CATEGORIES_DEPANNAGE));
+      setCarburant(lire("carburant", DEFAULT_CARBURANT));
+      setTheme({ ...DEFAULT_THEME, ...lire("theme", {}) });
+      setLoaded(true);
+    })();
+  }, [user]);
+
+  /* ---------- Sauvegarde (locale + cloud si connecté) ---------- */
+  const saveAll = useCallback(async (nextEntries, nextRates) => {
+    const donnees = {
+      entries: nextEntries ?? entries, rates: nextRates ?? rates, banque, planning, statuts, garage,
+      categoriesEntretien, categoriesDepannage, carburant, theme,
+    };
+    try {
+      storage.set(ns("entries"), donnees.entries);
+      storage.set(ns("rates"), donnees.rates);
+      storage.set(ns("banque"), banque);
+      storage.set(ns("planning"), planning);
+      storage.set(ns("statuts"), statuts);
+      storage.set(ns("garage"), garage);
+      storage.set(ns("categories-entretien"), categoriesEntretien);
+      storage.set(ns("categories-depannage"), categoriesDepannage);
+      storage.set(ns("carburant"), carburant);
+      storage.set(ns("theme"), theme);
+      storage.set(ns("publicites"), publicites);
+
+      if (user && firebaseConfigueValide && db) {
+        try {
+          await db.collection("users").doc(user.uid).set({ carnetData: JSON.stringify(donnees) }, { merge: true });
+          setSaveStatus("Synchronisé ✓");
+        } catch (err) {
+          setSaveStatus("Enregistré localement (pas de réseau)");
+        }
+      } else {
+        setSaveStatus("Enregistré ✓");
+      }
+      setTimeout(() => setSaveStatus(""), 1800);
+    } catch (err) {
+      setSaveStatus("Échec de l'enregistrement");
+      setTimeout(() => setSaveStatus(""), 2500);
+    }
+  }, [entries, rates, banque, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, user]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => { saveAll(); }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, rates, banque, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, loaded]);
+
+  useEffect(() => {
+    const annonces = publicites.annonces || [];
+    if (!publicites.actif || annonces.length <= 1) return;
+    const intervalMs = Math.max(5, Number(publicites.intervalleSecondes) || 60) * 1000;
+    const id = setInterval(() => { setPubIndex((i) => (i + 1) % annonces.length); }, intervalMs);
+    return () => clearInterval(id);
+  }, [publicites.actif, publicites.intervalleSecondes, publicites.annonces?.length]);
+
+  /* ---------- Gestion de l'entrée du jour sélectionné ---------- */
+
+  const currentEntry = useMemo(() => {
+    return entries.find((e) => e.date === selectedDate) || emptyEntry(selectedDate);
+  }, [entries, selectedDate]);
+
+  const updateEntry = useCallback((patch) => {
+    setEntries((prev) => {
+      const exists = prev.some((e) => e.date === selectedDate);
+      if (!exists) {
+        return [...prev, { ...emptyEntry(selectedDate), ...patch }];
+      }
+      return prev.map((e) => (e.date === selectedDate ? { ...e, ...patch } : e));
+    });
+  }, [selectedDate]);
+
+  const deleteCurrentEntry = () => {
+    if (!window.confirm("Supprimer la journée du " + selectedDate + " ?")) return;
+    setEntries((prev) => prev.filter((e) => e.date !== selectedDate));
+  };
+
+  const calc = useMemo(() => computeEntry(currentEntry, rates, nowLocalISO()), [currentEntry, rates, liveTick]);
+  const routier = useMemo(() => computeModeRoutier(currentEntry, rates, nowLocalISO(), calc.serviceMin), [currentEntry, rates, calc.serviceMin, liveTick]);
+
+  /* ---------- Actions de pointage ---------- */
+
+  const debuterService = () => updateEntry({ debutService: nowLocalISO() });
+  const terminerService = () => updateEntry({ finService: nowLocalISO() });
+
+  const debuterPause = () => {
+    const pauses = [...currentEntry.pauses];
+    if (pauses.length && !pauses[pauses.length - 1].fin) return; // pause déjà en cours
+    pauses.push({ debut: nowLocalISO(), fin: "" });
+    updateEntry({ pauses });
+  };
+  const terminerPause = () => {
+    const pauses = [...currentEntry.pauses];
+    const idx = pauses.length - 1;
+    if (idx < 0 || pauses[idx].fin) return;
+    pauses[idx] = { ...pauses[idx], fin: nowLocalISO() };
+    updateEntry({ pauses });
+  };
+  const pauseEnCours = currentEntry.pauses.length > 0 && !currentEntry.pauses[currentEntry.pauses.length - 1].fin;
+
+  const updatePause = (idx, field, val) => {
+    const pauses = [...currentEntry.pauses];
+    pauses[idx] = { ...pauses[idx], [field]: val };
+    updateEntry({ pauses });
+  };
+  const removePause = (idx) => {
+    const pauses = currentEntry.pauses.filter((_, i) => i !== idx);
+    updateEntry({ pauses });
+  };
+
+  /* ---------- Géolocalisation ---------- */
+
+  const geolocaliser = async (target) => {
+    setGeoStatus("Localisation en cours…");
+    try {
+      let latitude, longitude;
+      const CapGeo = window.Capacitor?.Plugins?.Geolocation;
+      if (CapGeo) {
+        // Plugin natif Capacitor — gère lui-même la demande de permission Android
+        const pos = await CapGeo.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+        latitude = pos.coords.latitude; longitude = pos.coords.longitude;
+      } else if (navigator.geolocation) {
+        // Repli navigateur (utile en mode web/PWA hors app native)
+        const pos = await new Promise((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+        );
+        latitude = pos.coords.latitude; longitude = pos.coords.longitude;
+      } else {
+        setGeoStatus("Géolocalisation non disponible sur cet appareil.");
+        return;
+      }
+      updateEntry({ [target]: { ...currentEntry[target], lat: latitude, lon: longitude } });
+      setGeoStatus("Position enregistrée ✓ — recherche de l'adresse…");
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+        const data = await res.json();
+        if (data?.display_name) {
+          updateEntry({ [target]: { ...currentEntry[target], lat: latitude, lon: longitude, adresse: data.display_name } });
+        }
+      } catch (e) { /* adresse indisponible, coordonnées déjà enregistrées */ }
+      setGeoStatus("Position enregistrée ✓");
+      setTimeout(() => setGeoStatus(""), 2500);
+    } catch (err) {
+      setGeoStatus("Position refusée ou indisponible. Vous pouvez saisir le lieu manuellement.");
+      setTimeout(() => setGeoStatus(""), 3500);
+    }
+  };
+
+  /* ---------- Conformité amplitude & repos ---------- */
+
+  const semaineDebut = useMemo(() => startOfWeek(new Date(semaineConformite + "T12:00:00")), [semaineConformite]);
+  const semaineFin = useMemo(() => { const f = new Date(semaineDebut); f.setDate(f.getDate() + 6); return f; }, [semaineDebut]);
+
+  const entriesSemaineConformite = useMemo(() => {
+    return entries.filter((e) => {
+      const d = new Date(e.date + "T12:00:00");
+      return d >= semaineDebut && d <= semaineFin;
+    });
+  }, [entries, semaineDebut, semaineFin]);
+
+  const conformiteSemaine = useMemo(
+    () => buildConformite(entriesSemaineConformite, rates, nowLocalISO()),
+    [entriesSemaineConformite, rates, liveTick]
+  );
+
+  const exceptionsUtilisees = useMemo(
+    () => conformiteSemaine.filter((j) => j.classe === "exceptionnelle").length,
+    [conformiteSemaine]
+  );
+
+  /* ---------- Rapports ---------- */
+
+  const entriesInPeriod = useMemo(
+    () => entries.filter((e) => inPeriod(e.date, periodType, refDate)).sort((a, b) => a.date.localeCompare(b.date)),
+    [entries, periodType, refDate]
+  );
+
+  const periodTotals = useMemo(() => {
+    let serviceMin = 0, nightMin = 0, frais = 0, amplitudeMin = 0;
+    const liveNowStr = nowLocalISO();
+    entriesInPeriod.forEach((e) => {
+      const c = computeEntry(e, rates, liveNowStr);
+      serviceMin += c.serviceMin;
+      nightMin += c.nightWorkedMin;
+      frais += c.frais;
+      amplitudeMin += c.amplitudeMin;
+    });
+    return { serviceMin, nightMin, frais, amplitudeMin };
+  }, [entriesInPeriod, rates, liveTick]);
+
+  const supprimerPeriode = () => {
+    if (!window.confirm(`Supprimer les ${entriesInPeriod.length} journée(s) de cette période ?`)) return;
+    const idsToRemove = new Set(entriesInPeriod.map((e) => e.id));
+    setEntries((prev) => prev.filter((e) => !idsToRemove.has(e.id)));
+  };
+
+  const envoyerRapportEmail = () => {
+    const label = { jour: "Jour", semaine: "Semaine", mois: "Mois", annee: "Année" }[periodType];
+    const subject = `Carnet de bord — Rapport (${label}) — ${refDate}`;
+    let body = `Rapport ${label} — référence ${refDate}\n\n`;
+    body += `Temps de service total : ${fmtHM(periodTotals.serviceMin)}\n`;
+    body += `Amplitude totale : ${fmtHM(periodTotals.amplitudeMin)}\n`;
+    body += `Heures de nuit : ${fmtHM(periodTotals.nightMin)}\n`;
+    body += `Frais de route : ${periodTotals.frais.toFixed(2)} €\n\n`;
+    body += `Détail par journée :\n`;
+    const liveNowStr = nowLocalISO();
+    entriesInPeriod.forEach((e) => {
+      const c = computeEntry(e, rates, liveNowStr);
+      body += `- ${e.date} : service ${fmtHM(c.serviceMin)}, nuit ${fmtHM(c.nightWorkedMin)}, frais ${c.frais.toFixed(2)} €\n`;
+    });
+    body += `\nMon carnet de bord — Yoda 0.1 — FARDOUX Mathieu`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  /* ---------- Paie mensuelle ---------- */
+
+  const entriesInMonth = useMemo(
+    () => entries.filter((e) => e.date.slice(0, 7) === payMonth),
+    [entries, payMonth]
+  );
+  const pay = useMemo(() => computeMonthPay(entriesInMonth, rates, nowLocalISO()), [entriesInMonth, rates, liveTick]);
+
+  const envoyerPaieEmail = () => {
+    const subject = `Carnet de bord — Estimation de paie — ${payMonth}`;
+    let body = `Estimation de paie — ${payMonth}\n\n`;
+    body += `Heures totales : ${pay.H.toFixed(2)} h (dont nuit ${pay.nightH.toFixed(2)} h)\n\n`;
+    body += `Base 0-${rates.seuil1}h  : ${pay.b0.toFixed(2)} h × ${rates.tauxHoraire}€           = ${pay.payNormal.toFixed(2)} €\n`;
+    body += `Équiv. 25% (${rates.seuil1}-${rates.seuil2}h) : ${pay.b1.toFixed(2)} h × ${(rates.tauxHoraire * 1.25).toFixed(2)}€ = ${pay.payEquiv.toFixed(2)} €\n`;
+    body += `HS 25% (${rates.seuil2}-${rates.seuil3}h)     : ${pay.b2.toFixed(2)} h × ${(rates.tauxHoraire * pay.tauxHS25).toFixed(2)}€ = ${pay.payHS25.toFixed(2)} €\n`;
+    body += `HS 50% (${rates.seuil3}-${rates.seuil4}h)     : ${pay.b3.toFixed(2)} h × ${(rates.tauxHoraire * pay.tauxHS50).toFixed(2)}€ = ${pay.payHS50.toFixed(2)} €\n`;
+    body += `HS 100% (${rates.seuil4}-${rates.seuilBanque}h) : ${pay.b4.toFixed(2)} h × ${(rates.tauxHoraire * pay.tauxHS100).toFixed(2)}€ = ${pay.payHS100.toFixed(2)} €\n`;
+    body += `Majoration de nuit (20%)     : ${pay.payNight.toFixed(2)} €\n\n`;
+    if (pay.bBanque > 0) {
+      body += `Versé en banque d'heures (au-delà de ${rates.seuilBanque}h, non payé ce mois) : ${pay.bBanque.toFixed(2)} h à ${(pay.tauxHS100 * 100).toFixed(0)}%\n\n`;
+    }
+    body += `Salaire brut estimé : ${pay.salaireBrut.toFixed(2)} €\n`;
+    body += `Salaire net estimé  : ${pay.salaireNet.toFixed(2)} €\n`;
+    body += `Frais de route      : ${pay.frais.toFixed(2)} €\n`;
+    body += `TOTAL NET ESTIMÉ    : ${pay.netTotal.toFixed(2)} €\n\n`;
+    body += `Mon carnet de bord — Yoda 0.1 — FARDOUX Mathieu`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  /* ---------- Banque d'heures ---------- */
+
+  const soldeBanqueHeures = useMemo(() => {
+    const depots = banque.mouvements.filter((m) => m.type === "depot").reduce((s, m) => s + Number(m.heures), 0);
+    const retraits = banque.mouvements.filter((m) => m.type === "retrait").reduce((s, m) => s + Number(m.heures), 0);
+    return Number(banque.soldeDepart || 0) + depots - retraits;
+  }, [banque]);
+
+  const soldeBanqueValeur = useMemo(() => {
+    let total = Number(banque.soldeDepart || 0) * Number(banque.tauxDepart || 1) * rates.tauxHoraire;
+    banque.mouvements.forEach((m) => {
+      const signe = m.type === "depot" ? 1 : -1;
+      total += signe * Number(m.heures) * Number(m.taux || 1) * rates.tauxHoraire;
+    });
+    return total;
+  }, [banque, rates.tauxHoraire]);
+
+  const dejaVerseCeMois = banque.mouvements.some((m) => m.type === "depot" && m.note === `Versement automatique ${payMonth}`);
+
+  const verserBanqueDuMois = () => {
+    if (pay.bBanque <= 0 || dejaVerseCeMois) return;
+    const mouvement = {
+      id: "mvt-" + Math.random().toString(36).slice(2, 9),
+      date: todayISODate(),
+      type: "depot",
+      heures: Number(pay.bBanque.toFixed(2)),
+      taux: pay.tauxHS100,
+      note: `Versement automatique ${payMonth}`,
+    };
+    setBanque((prev) => ({ ...prev, mouvements: [...prev.mouvements, mouvement] }));
+  };
+
+  const ajouterMouvementBanque = (type, heures, taux, note) => {
+    if (!heures || Number(heures) <= 0) return;
+    const mouvement = {
+      id: "mvt-" + Math.random().toString(36).slice(2, 9),
+      date: todayISODate(),
+      type,
+      heures: Number(heures),
+      taux: Number(taux) || 1,
+      note: note || (type === "depot" ? "Dépôt manuel" : "Retrait manuel"),
+    };
+    setBanque((prev) => ({ ...prev, mouvements: [...prev.mouvements, mouvement] }));
+  };
+
+  const supprimerMouvementBanque = (id) => {
+    setBanque((prev) => ({ ...prev, mouvements: prev.mouvements.filter((m) => m.id !== id) }));
+  };
+
+  /* ---------- Planning (statuts jour) ---------- */
+
+  const definirStatutJour = (date, statut) => {
+    setPlanning((prev) => {
+      const next = { ...prev };
+      if (!statut) delete next[date];
+      else next[date] = statut;
+      return next;
+    });
+  };
+
+  const joursDuMoisPlanning = useMemo(() => {
+    const [an, mois] = planningMois.split("-").map(Number);
+    const nbJours = new Date(an, mois, 0).getDate();
+    return Array.from({ length: nbJours }, (_, i) => {
+      const jour = String(i + 1).padStart(2, "0");
+      const date = `${planningMois}-${jour}`;
+      const aTravaille = entries.some((e) => e.date === date && e.debutService);
+      return { date, statut: planning[date] || (aTravaille ? "poste" : ""), aTravaille };
+    });
+  }, [planningMois, planning, entries]);
+
+  const modifierStatut = (id, patch) => setStatuts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  const supprimerStatut = (id) => setStatuts((prev) => prev.filter((s) => s.id !== id));
+  const ajouterStatut = () => {
+    const id = "statut-" + Math.random().toString(36).slice(2, 8);
+    setStatuts((prev) => [...prev, { id, label: "Nouvelle catégorie", couleur: "#64748b" }]);
+  };
+
+  /* ---------- Garage ---------- */
+
+  const updateGarageVehicule = (vehicule, field, value) =>
+    setGarage((prev) => ({ ...prev, [vehicule]: { ...prev[vehicule], [field]: value } }));
+
+  const ajouterEntretien = (entretien) =>
+    setGarage((prev) => ({ ...prev, entretiens: [...prev.entretiens, { id: "ent-" + Math.random().toString(36).slice(2, 8), ...entretien }] }));
+  const supprimerEntretien = (id) =>
+    setGarage((prev) => ({ ...prev, entretiens: prev.entretiens.filter((e) => e.id !== id) }));
+
+  const ajouterDepannage = (depannage) =>
+    setGarage((prev) => ({ ...prev, depannages: [...prev.depannages, { id: "dep-" + Math.random().toString(36).slice(2, 8), ...depannage }] }));
+  const supprimerDepannage = (id) =>
+    setGarage((prev) => ({ ...prev, depannages: prev.depannages.filter((d) => d.id !== id) }));
+
+  const ajouterCategorieEntretien = (nom) => {
+    if (!nom || categoriesEntretien.includes(nom)) return;
+    setCategoriesEntretien((prev) => [...prev.filter((c) => c !== "Autre"), nom, "Autre"]);
+  };
+  const supprimerCategorieEntretien = (nom) => setCategoriesEntretien((prev) => prev.filter((c) => c !== nom));
+  const ajouterCategorieDepannage = (nom) => {
+    if (!nom || categoriesDepannage.includes(nom)) return;
+    setCategoriesDepannage((prev) => [...prev.filter((c) => c !== "Autre"), nom, "Autre"]);
+  };
+  const supprimerCategorieDepannage = (nom) => setCategoriesDepannage((prev) => prev.filter((c) => c !== nom));
+
+  /* ---------- Carburant ---------- */
+
+  const ajouterPlein = (plein) =>
+    setCarburant((prev) => ({ ...prev, pleins: [...prev.pleins, { id: "plein-" + Math.random().toString(36).slice(2, 8), ...plein }] }));
+  const supprimerPlein = (id) =>
+    setCarburant((prev) => ({ ...prev, pleins: prev.pleins.filter((p) => p.id !== id) }));
+
+  const consommationGasoil = useMemo(() => {
+    const pleinsGasoil = carburant.pleins
+      .filter((p) => p.type === "gasoil" && p.km)
+      .slice()
+      .sort((a, b) => Number(a.km) - Number(b.km));
+    const intervalles = [];
+    for (let i = 1; i < pleinsGasoil.length; i++) {
+      const distKm = Number(pleinsGasoil[i].km) - Number(pleinsGasoil[i - 1].km);
+      const litres = Number(pleinsGasoil[i].litres);
+      if (distKm > 0) intervalles.push({ date: pleinsGasoil[i].date, distKm, litres, conso: (litres / distKm) * 100 });
+    }
+    const totalLitres = intervalles.reduce((s, i) => s + i.litres, 0);
+    const totalKm = intervalles.reduce((s, i) => s + i.distKm, 0);
+    const consoMoyenne = totalKm > 0 ? (totalLitres / totalKm) * 100 : 0;
+    return { intervalles, consoMoyenne, totalKm, totalLitres };
+  }, [carburant]);
+
+  /* ---------- Réglages ---------- */
+  const updateRate = (field, value) => setRates((prev) => ({ ...prev, [field]: value }));
+  const updateTheme = (field, value) => setTheme((prev) => ({ ...prev, [field]: value }));
+
+  const ajouterAnnonce = () => {
+    const id = "pub-" + Math.random().toString(36).slice(2, 8);
+    setPublicites((prev) => ({ ...prev, annonces: [...prev.annonces, { id, texte: "Nouvelle annonce", lien: "" }] }));
+  };
+  const modifierAnnonce = (id, patch) => {
+    setPublicites((prev) => ({ ...prev, annonces: prev.annonces.map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
+  };
+  const supprimerAnnonce = (id) => {
+    setPublicites((prev) => ({ ...prev, annonces: prev.annonces.filter((a) => a.id !== id) }));
+  };
+
+  /* ---------- Sauvegarde / restauration des données ---------- */
+
+  const rassemblerDonnees = () => ({
+    version: 1, exporteLe: new Date().toISOString(),
+    entries, rates, banque, planning, statuts, garage,
+    categoriesEntretien, categoriesDepannage, carburant, theme, publicites,
+  });
+
+  const exporterDonnees = async () => {
+    const donnees = JSON.stringify(rassemblerDonnees(), null, 2);
+    const nomFichier = `carnet-de-bord-sauvegarde-${todayISODate()}.json`;
+    try {
+      const CapFS = window.Capacitor?.Plugins?.Filesystem;
+      const CapShare = window.Capacitor?.Plugins?.Share;
+      if (CapFS && CapShare) {
+        const res = await CapFS.writeFile({ path: nomFichier, data: donnees, directory: "DOCUMENTS", encoding: "utf8" });
+        await CapShare.share({ title: "Sauvegarde Mon carnet de bord", text: "Sauvegarde de mes données", url: res.uri, dialogTitle: "Envoyer la sauvegarde" });
+        setSaveStatus("Sauvegarde partagée ✓");
+      } else {
+        // Repli navigateur : téléchargement direct du fichier
+        const blob = new Blob([donnees], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = nomFichier;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setSaveStatus("Fichier téléchargé ✓");
+      }
+    } catch (err) {
+      setSaveStatus("Échec de l'export");
+    }
+    setTimeout(() => setSaveStatus(""), 2500);
+  };
+
+  const importerDonnees = (fichier) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const d = JSON.parse(e.target.result);
+        if (d.entries) setEntries(d.entries);
+        if (d.rates) setRates({ ...DEFAULT_RATES, ...d.rates });
+        if (d.banque) setBanque(d.banque);
+        if (d.planning) setPlanning(d.planning);
+        if (d.statuts) setStatuts(d.statuts);
+        if (d.garage) setGarage({ ...DEFAULT_GARAGE, ...d.garage });
+        if (d.categoriesEntretien) setCategoriesEntretien(d.categoriesEntretien);
+        if (d.categoriesDepannage) setCategoriesDepannage(d.categoriesDepannage);
+        if (d.carburant) setCarburant(d.carburant);
+        if (d.theme) setTheme({ ...DEFAULT_THEME, ...d.theme });
+        if (d.publicites) setPublicites({ ...DEFAULT_PUBLICITES, ...d.publicites });
+        setSaveStatus("Données restaurées ✓");
+      } catch (err) {
+        setSaveStatus("Fichier de sauvegarde invalide");
+      }
+      setTimeout(() => setSaveStatus(""), 2500);
+    };
+    reader.readAsText(fichier);
+  };
+
+  const supprimerTout = async () => {
+    if (!window.confirm("Supprimer TOUTES les données du carnet de bord ? Cette action est irréversible.")) return;
+    setEntries([]);
+    setRates(DEFAULT_RATES);
+    setBanque({ soldeDepart: 0, tauxDepart: 1.5, mouvements: [] });
+    setPlanning({});
+    setStatuts(DEFAULT_STATUTS);
+    setGarage(DEFAULT_GARAGE);
+    setCategoriesEntretien(DEFAULT_CATEGORIES_ENTRETIEN);
+    setCategoriesDepannage(DEFAULT_CATEGORIES_DEPANNAGE);
+    setCarburant(DEFAULT_CARBURANT);
+    setTheme(DEFAULT_THEME);
+    setPublicites(DEFAULT_PUBLICITES);
+    await saveAll([], DEFAULT_RATES);
+  };
+
+  const changeDay = (delta) => {
+    const d = new Date(selectedDate + "T12:00:00");
+    d.setDate(d.getDate() + delta);
+    setSelectedDate(d.toISOString().slice(0, 10));
+  };
+
+  /* ============================= RENDU ============================= */
+
+  const TABS = [
+    { id: "pointage", label: "Pointage", icon: Clock },
+    { id: "frais", label: "Frais", icon: Euro },
+    { id: "conformite", label: "Conformité", icon: AlertCircle },
+    { id: "planning", label: "Planning", icon: Calendar },
+    { id: "banque", label: "Banque", icon: Save },
+    { id: "garage", label: "Garage", icon: Wrench },
+    { id: "carburant", label: "Carburant", icon: Fuel },
+    { id: "rapports", label: "Rapports", icon: FileText },
+    { id: "paie", label: "Paie", icon: Calendar },
+    { id: "reglages", label: "Réglages", icon: Settings },
+    ...(isAdmin ? [{ id: "admin", label: "Admin", icon: Users }] : []),
+  ];
+
+  return (
+    <div
+      className="min-h-screen font-sans pb-10"
+      style={{ backgroundColor: theme.fond, color: theme.texte, "--accent": theme.accent }}
+    >
+      {/* En-tête style tableau de bord */}
+      <div className="border-b border-slate-800 px-4 pt-5 pb-3 sticky top-0 z-20" style={{ backgroundColor: theme.fond }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-black tracking-tight" style={{ color: theme.accent }}>MON CARNET DE BORD</h1>
+            <p className="text-[11px] text-slate-500 font-mono">
+              Yoda 0.1 — FARDOUX Mathieu {user && <span className="text-slate-600">— {user.email}</span>}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => saveAll()}
+              className="flex items-center gap-1.5 text-slate-950 font-bold text-xs px-3 py-2 rounded-lg active:scale-95 transition"
+              style={{ backgroundColor: theme.accent }}
+            >
+              <Save size={15} />
+            </button>
+            {onLogout && (
+              <button onClick={onLogout} className="flex items-center gap-1.5 bg-slate-800 text-slate-300 text-xs px-3 py-2 rounded-lg active:scale-95 transition">
+                <LogOut size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+        {saveStatus && (
+          <div className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1">
+            <CheckCircle2 size={12} /> {saveStatus}
+          </div>
+        )}
+        {/* Navigation onglets */}
+        <div className="flex gap-1 mt-3 overflow-x-auto no-scrollbar">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                tab === t.id ? "text-slate-950" : "bg-slate-800/70 text-slate-400 hover:text-slate-200"
+              }`}
+              style={tab === t.id ? { backgroundColor: theme.accent } : undefined}
+            >
+              <t.icon size={14} /> {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!sansPub && publicites.actif && publicites.annonces.length > 0 && (
+        <BanniereRotative annonce={publicites.annonces[pubIndex % publicites.annonces.length]} theme={theme} />
+      )}
+
+      <div className="px-4 mt-4 max-w-xl mx-auto">
+
+        {/* ============ ONGLET POINTAGE ============ */}
+        {tab === "pointage" && (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2">
+              <button onClick={() => changeDay(-1)} className="p-1.5 text-slate-400 hover:text-amber-400"><ChevronLeft size={20} /></button>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-transparent text-center font-mono text-lg font-bold text-slate-100 focus:outline-none"
+              />
+              <button onClick={() => changeDay(1)} className="p-1.5 text-slate-400 hover:text-amber-400"><ChevronRight size={20} /></button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <TimeButton icon={Play} label="Début service" onClick={debuterService} active={!!currentEntry.debutService} color="bg-emerald-600" />
+              <TimeButton icon={Square} label="Fin service" onClick={terminerService} active={!!currentEntry.finService} color="bg-rose-600" />
+              <TimeButton icon={Coffee} label="Début pause" onClick={debuterPause} active={pauseEnCours} color="bg-sky-600" />
+              <TimeButton icon={Coffee} label="Fin pause" onClick={terminerPause} active={false} color="bg-indigo-600" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+              <DateTimeField label="Début de service" value={currentEntry.debutService} onChange={(v) => updateEntry({ debutService: v })} />
+              <DateTimeField label="Fin de service" value={currentEntry.finService} onChange={(v) => updateEntry({ finService: v })} />
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Pauses cumulées</span>
+                <button
+                  onClick={() => updateEntry({ pauses: [...currentEntry.pauses, { debut: "", fin: "" }] })}
+                  className="text-amber-400 text-xs flex items-center gap-1"
+                ><Plus size={13} /> Ajouter</button>
+              </div>
+              {currentEntry.pauses.length === 0 && <p className="text-xs text-slate-500">Aucune pause enregistrée.</p>}
+              {currentEntry.pauses.map((p, idx) => (
+                <div key={idx} className="grid grid-cols-2 gap-2 items-end border-t border-slate-800 pt-2">
+                  <DateTimeField label={`Début pause ${idx + 1}`} value={p.debut} onChange={(v) => updatePause(idx, "debut", v)} />
+                  <div className="flex gap-1 items-end">
+                    <DateTimeField label={`Fin pause ${idx + 1}`} value={p.fin} onChange={(v) => updatePause(idx, "fin", v)} />
+                    <button onClick={() => removePause(idx)} className="p-2 text-rose-400"><Trash2 size={16} /></button>
+                  </div>
+                </div>
+              ))}
+              <label className="flex flex-col gap-1 text-xs text-slate-400 mt-1">
+                <span className="uppercase tracking-wide">Total pause manuel (minutes) — remplace le calcul automatique</span>
+                <input
+                  type="number"
+                  placeholder={`Calculé : ${Math.round(calc.pauseCalcMin)} min`}
+                  value={currentEntry.pauseManuelle}
+                  onChange={(e) => updateEntry({ pauseManuelle: e.target.value })}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="flex gap-2 flex-wrap">
+              <StatCard icon={Clock} label="Amplitude" value={fmtHM(calc.amplitudeMin)} sub={calc.enCoursService ? "● en cours" : undefined} accent="text-amber-400" />
+              <StatCard icon={Coffee} label="Pause" value={fmtHM(calc.pauseMin)} sub={calc.pauseEnCours ? "● en cours" : undefined} accent="text-sky-400" />
+              <StatCard icon={Clock} label="Temps service" value={fmtHM(calc.serviceMin)} sub={calc.enCoursService ? "● en cours" : "pour la paie"} accent="text-emerald-400" />
+              <StatCard icon={Moon} label="Nuit (21h-6h)" value={fmtHM(calc.nightWorkedMin)} sub="majoré 20%" accent="text-indigo-400" />
+            </div>
+
+            {routier && (
+              <div className={`rounded-xl p-3 border flex flex-col gap-2 ${
+                routier.niveauAmplitude === "critique" || routier.niveauService === "critique" ? "bg-rose-900/40 border-rose-600 animate-pulse" :
+                routier.niveauAmplitude === "alerte" || routier.niveauService === "alerte" ? "bg-amber-900/40 border-amber-600" :
+                "bg-slate-900/60 border-slate-800"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wide text-slate-400 flex items-center gap-1.5">
+                    <AlertCircle size={13} /> Mode Routier — {routier.enJournee ? "Départ en journée" : "Départ de nuit"}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Ampli. max {routier.amplitudeMaxH}h</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-300">Fin impérative (amplitude)</span>
+                  <span className={`font-mono font-bold text-lg ${
+                    routier.niveauAmplitude === "critique" ? "text-rose-400" : routier.niveauAmplitude === "alerte" ? "text-amber-400" : "text-slate-100"
+                  }`}>{routier.finImperativeHHMM}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Temps restant avant fin d'amplitude</span>
+                  <span className={routier.niveauAmplitude === "critique" ? "text-rose-400 font-bold" : routier.niveauAmplitude === "alerte" ? "text-amber-400 font-bold" : "text-slate-300"}>
+                    {routier.tempsRestantAmplitudeMin > 0 ? fmtHM(routier.tempsRestantAmplitudeMin) : "Dépassé"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Temps de service restant (avant plafond)</span>
+                  <span className={routier.niveauService === "critique" ? "text-rose-400 font-bold" : routier.niveauService === "alerte" ? "text-amber-400 font-bold" : "text-slate-300"}>
+                    {routier.tempsServiceRestantMin > 0 ? fmtHM(routier.tempsServiceRestantMin) : "Dépassé"}
+                  </span>
+                </div>
+                {(routier.niveauAmplitude === "critique" || routier.niveauService === "critique") && (
+                  <p className="text-[11px] text-rose-300 font-semibold">⚠ Moins de 5 minutes restantes — arrêt imminent obligatoire.</p>
+                )}
+                {(routier.niveauAmplitude === "alerte" || routier.niveauService === "alerte") && routier.niveauAmplitude !== "critique" && routier.niveauService !== "critique" && (
+                  <p className="text-[11px] text-amber-300 font-semibold">⚠ Approche de la limite — prépare la fin de service.</p>
+                )}
+              </div>
+            )}
+
+            {currentEntry.debutService && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Détail des heures</span>
+
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-400 flex items-center gap-1.5"><Clock size={13} className="text-amber-400" /> Fin d'amplitude</span>
+                  <span className="font-mono font-bold text-amber-400">
+                    {calc.enCoursService ? `${fmtHeure(calc.finEffective)} (en cours)` : fmtHeure(currentEntry.finService)}
+                  </span>
+                </div>
+
+                <div className="border-t border-slate-800 pt-2 flex flex-col gap-1.5">
+                  <span className="text-slate-400 text-xs flex items-center gap-1.5"><Clock size={13} className="text-emerald-400" /> Temps de service (pauses déduites)</span>
+                  {calc.segments.length === 0 && (
+                    <p className="text-xs text-slate-500">
+                      {calc.pauseEnCours ? "En pause — le temps de service reprendra à la fin de pause." : "Aucun segment de travail pour l'instant."}
+                    </p>
+                  )}
+                  {calc.segments.map((s, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5">
+                      <span className="font-mono text-slate-300">{fmtHeure(s.debut)} → {fmtHeure(s.fin)}{s.enCours ? " (en cours)" : ""}</span>
+                      <span className="font-mono text-emerald-400">{fmtHM(minutesBetween(s.debut, s.fin))}</span>
+                    </div>
+                  ))}
+                  {calc.pauseEnCours && (
+                    <div className="flex items-center justify-between text-xs bg-sky-900/30 rounded-lg px-2.5 py-1.5">
+                      <span className="text-sky-300">● En pause depuis {fmtHeure(currentEntry.pauses[currentEntry.pauses.length - 1].debut)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800 mt-1">
+                    <span className="text-slate-400">Fin du temps de service</span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      {calc.pauseEnCours ? "en pause" : calc.enCoursService ? `${fmtHeure(calc.finEffective)} (en cours)` : fmtHeure(currentEntry.finService)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button onClick={deleteCurrentEntry} className="flex items-center justify-center gap-2 text-rose-400 text-xs border border-rose-900/50 rounded-lg py-2">
+              <Trash2 size={14} /> Supprimer cette journée
+            </button>
+          </div>
+        )}
+
+        {/* ============ ONGLET FRAIS ============ */}
+        {tab === "frais" && (
+          <div className="flex flex-col gap-3">
+            <div className="text-xs text-slate-500 font-mono">Journée du {selectedDate} — taux modifiables dans Réglages</div>
+
+            {/* Casse-croûte */}
+            <FraisLigne
+              titre="Casse-croûte"
+              montant={currentEntry.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute}
+              value={currentEntry.casseCroute}
+              onChange={(v) => updateEntry({ casseCroute: v })}
+            />
+            {/* Repas midi */}
+            <FraisLigne
+              titre="Repas midi"
+              montant={currentEntry.repasMidi.etranger ? rates.repasEtr : rates.repas}
+              value={currentEntry.repasMidi}
+              onChange={(v) => updateEntry({ repasMidi: v })}
+            />
+            {/* Repas soir */}
+            <FraisLigne
+              titre="Repas soir"
+              montant={currentEntry.repasSoir.etranger ? rates.repasEtr : rates.repas}
+              value={currentEntry.repasSoir}
+              onChange={(v) => updateEntry({ repasSoir: v })}
+            />
+
+            {/* Découche */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-sm">Découche</span>
+                <ToggleActif value={currentEntry.decouche.actif} onChange={(v) => updateEntry({ decouche: { ...currentEntry.decouche, actif: v } })} />
+              </div>
+              {currentEntry.decouche.actif && (
+                <>
+                  <ToggleEtranger
+                    value={currentEntry.decouche.etranger}
+                    onChange={(v) => updateEntry({ decouche: { ...currentEntry.decouche, etranger: v } })}
+                    montantFr={rates.decouche} montantEtr={rates.decoucheEtr}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Note de l'endroit</span>
+                    <StarRating value={currentEntry.decouche.note} onChange={(n) => updateEntry({ decouche: { ...currentEntry.decouche, note: n } })} />
+                  </div>
+                  <GeoBloc
+                    lieu={currentEntry.decouche.lieu}
+                    lat={currentEntry.decouche.lat}
+                    lon={currentEntry.decouche.lon}
+                    adresse={currentEntry.decouche.adresse}
+                    onLieu={(v) => updateEntry({ decouche: { ...currentEntry.decouche, lieu: v } })}
+                    onGeoloc={() => geolocaliser("decouche")}
+                    onCoordonnees={(lat, lon, adresse) => updateEntry({ decouche: { ...currentEntry.decouche, lat, lon, adresse } })}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Week-end */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-sm">Week-end</span>
+                <ToggleActif value={currentEntry.weekend.actif} onChange={(v) => updateEntry({ weekend: { ...currentEntry.weekend, actif: v } })} />
+              </div>
+              {currentEntry.weekend.actif && (
+                <>
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => updateEntry({ weekend: { ...currentEntry.weekend, etranger: false, montant: rates.weekend || currentEntry.weekend.montant } })}
+                        className={`px-2.5 py-1 rounded-lg ${!currentEntry.weekend.etranger ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}
+                      >France</button>
+                      <button
+                        onClick={() => updateEntry({ weekend: { ...currentEntry.weekend, etranger: true, montant: rates.weekendEtr || currentEntry.weekend.montant } })}
+                        className={`px-2.5 py-1 rounded-lg ${currentEntry.weekend.etranger ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}
+                      >Étranger</button>
+                    </div>
+                    <span className="font-mono text-amber-400">{(currentEntry.weekend.etranger ? rates.weekendEtr : rates.weekend).toFixed(2)} € (taux par défaut)</span>
+                  </div>
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    <span className="uppercase tracking-wide">Montant (modifiable manuellement)</span>
+                    <input
+                      type="number" step="0.01"
+                      value={currentEntry.weekend.montant}
+                      onChange={(e) => updateEntry({ weekend: { ...currentEntry.weekend, montant: e.target.value } })}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+                      placeholder="0.00 €"
+                    />
+                  </label>
+                  <GeoBloc
+                    lieu={currentEntry.weekend.lieu}
+                    lat={currentEntry.weekend.lat}
+                    lon={currentEntry.weekend.lon}
+                    adresse={currentEntry.weekend.adresse}
+                    onLieu={(v) => updateEntry({ weekend: { ...currentEntry.weekend, lieu: v } })}
+                    onGeoloc={() => geolocaliser("weekend")}
+                    onCoordonnees={(lat, lon, adresse) => updateEntry({ weekend: { ...currentEntry.weekend, lat, lon, adresse } })}
+                  />
+                </>
+              )}
+            </div>
+
+            {geoStatus && <div className="text-xs text-amber-400 flex items-center gap-1"><MapPin size={12} /> {geoStatus}</div>}
+
+            <div className="bg-amber-500 text-slate-950 rounded-xl p-3 font-bold text-center">
+              Total frais du jour : {calc.frais.toFixed(2)} €
+            </div>
+          </div>
+        )}
+
+        {/* ============ ONGLET CONFORMITÉ ============ */}
+        {tab === "conformite" && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2">
+              <span className="text-xs text-slate-400">Semaine du</span>
+              <input type="date" value={semaineConformite} onChange={(e) => setSemaineConformite(e.target.value)}
+                className="bg-transparent text-center font-mono text-sm font-bold text-slate-100 focus:outline-none" />
+              <span className="text-xs text-slate-500 font-mono">
+                {semaineDebut.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} → {semaineFin.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}
+              </span>
+            </div>
+
+            <div className={`rounded-xl p-3 flex items-center justify-between border ${exceptionsUtilisees > rates.ampliExcepQuota ? "bg-rose-900/30 border-rose-700" : "bg-slate-900/60 border-slate-800"}`}>
+              <span className="text-sm text-slate-300">Amplitudes exceptionnelles ({rates.ampliBase}h–{rates.ampliExcep}h)</span>
+              <span className={`font-mono font-bold text-lg ${exceptionsUtilisees > rates.ampliExcepQuota ? "text-rose-400" : "text-emerald-400"}`}>
+                {exceptionsUtilisees} / {rates.ampliExcepQuota}
+              </span>
+            </div>
+            {exceptionsUtilisees > rates.ampliExcepQuota && (
+              <div className="text-xs text-rose-300 flex items-center gap-1.5"><AlertCircle size={13} /> Quota hebdomadaire d'amplitude exceptionnelle dépassé.</div>
+            )}
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
+              {conformiteSemaine.length === 0 && <p className="p-3 text-xs text-slate-500">Aucune journée pointée cette semaine.</p>}
+              {conformiteSemaine.map((j) => {
+                const classeStyle = {
+                  normale: { label: "Normale", cls: "bg-emerald-900/40 text-emerald-300" },
+                  exceptionnelle: { label: "Exceptionnelle", cls: "bg-amber-900/40 text-amber-300" },
+                  depassement: { label: "Dépassement", cls: "bg-rose-900/40 text-rose-300" },
+                }[j.classe];
+                const reposStyle = {
+                  normal: { label: "Repos normal", cls: "text-emerald-400" },
+                  fractionne: { label: "Repos fractionné conforme", cls: "text-sky-400" },
+                  insuffisant: { label: "Repos insuffisant", cls: "text-rose-400" },
+                  inconnu: { label: "—", cls: "text-slate-500" },
+                }[j.reposStatus];
+                return (
+                  <div key={j.date} className="p-2.5 flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-mono text-slate-300">{j.date}</span>
+                      <span className="font-mono">{j.amplitudeH.toFixed(1)}h{j.enCours ? " (en cours)" : ""}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${classeStyle.cls}`}>{classeStyle.label}</span>
+                    </div>
+                    {j.reposMin != null && (
+                      <div className={`text-[11px] flex items-center gap-1 ${reposStyle.cls}`}>
+                        <Clock size={11} /> Repos suivant : {fmtHM(j.reposMin)} — {reposStyle.label}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="text-[10px] text-slate-500">
+              Base normale : {rates.ampliBase}h d'amplitude (repos {rates.reposNormal}h consécutif). Exceptionnelle : jusqu'à {rates.ampliExcep}h
+              (repos réduit {rates.reposReduit}h), max {rates.ampliExcepQuota}×/semaine, à compenser par une coupure d'au moins {rates.reposCompensation}h.
+              Seuils modifiables dans Réglages.
+            </p>
+          </div>
+        )}
+
+        {/* ============ ONGLET PLANNING ============ */}
+        {tab === "planning" && (
+          <div className="flex flex-col gap-3">
+            <input type="month" value={planningMois} onChange={(e) => setPlanningMois(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+
+            <div className="flex flex-wrap gap-1.5">
+              {statuts.map((s) => (
+                <span key={s.id} className="text-[10px] px-2 py-1 rounded-full font-semibold text-white" style={{ backgroundColor: s.couleur }}>{s.label}</span>
+              ))}
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
+              {joursDuMoisPlanning.map((j) => {
+                const statutInfo = statuts.find((s) => s.id === j.statut);
+                return (
+                  <div key={j.date} className="p-2.5 flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs text-slate-300 w-16">{j.date.slice(8, 10)}/{j.date.slice(5, 7)}</span>
+                    {j.aTravaille && !planning[j.date] && (
+                      <span className="text-[10px] text-slate-500 flex-1">Journée pointée (Pointage)</span>
+                    )}
+                    <select
+                      value={planning[j.date] || ""}
+                      onChange={(e) => definirStatutJour(j.date, e.target.value)}
+                      className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs"
+                    >
+                      <option value="">— (aucun statut particulier)</option>
+                      {statuts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                    </select>
+                    {statutInfo && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold text-white" style={{ backgroundColor: statutInfo.couleur }}>{statutInfo.label}</span>}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Gérer les catégories</span>
+              {statuts.map((s) => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <input type="color" value={s.couleur} onChange={(e) => modifierStatut(s.id, { couleur: e.target.value })} className="w-8 h-8 rounded bg-transparent" />
+                  <input type="text" value={s.label} onChange={(e) => modifierStatut(s.id, { label: e.target.value })}
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs" />
+                  <button onClick={() => supprimerStatut(s.id)} className="text-rose-400"><Trash2 size={14} /></button>
+                </div>
+              ))}
+              <button onClick={ajouterStatut} className="flex items-center justify-center gap-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg py-1.5"><Plus size={13} /> Ajouter une catégorie</button>
+            </div>
+          </div>
+        )}
+
+        {/* ============ ONGLET BANQUE D'HEURES ============ */}
+        {tab === "banque" && (
+          <div className="flex flex-col gap-3">
+            <div className="rounded-xl p-4 text-center" style={{ backgroundColor: theme.accent }}>
+              <div className="text-xs font-semibold text-slate-950 uppercase tracking-wide">Solde actuel</div>
+              <div className="text-3xl font-black text-slate-950 font-mono">{soldeBanqueHeures.toFixed(2)} h</div>
+              <div className="text-xs text-slate-900/70">≈ {soldeBanqueValeur.toFixed(2)} € estimés</div>
+            </div>
+
+            {pay.bBanque > 0 && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-300">
+                  {pay.bBanque.toFixed(2)}h à verser pour {payMonth} (au-delà de {rates.seuilBanque}h)
+                </span>
+                <button
+                  onClick={verserBanqueDuMois}
+                  disabled={dejaVerseCeMois}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${dejaVerseCeMois ? "bg-slate-800 text-slate-500" : "bg-emerald-600 text-white"}`}
+                >
+                  {dejaVerseCeMois ? "Déjà versé" : "Verser"}
+                </button>
+              </div>
+            )}
+
+            <Section titre="Solde de départ">
+              <ChampNombre label="Heures de départ" value={banque.soldeDepart} onChange={(v) => setBanque((p) => ({ ...p, soldeDepart: v }))} />
+              <ChampNombre label="Taux associé (ex: 1.5 = 150%)" value={banque.tauxDepart} onChange={(v) => setBanque((p) => ({ ...p, tauxDepart: v }))} />
+            </Section>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Ajouter un retrait (heures utilisées)</span>
+              <FormMouvementBanque onValider={(h, t, n) => ajouterMouvementBanque("retrait", h, t, n)} defautTaux={pay.tauxHS100} />
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Ajouter un dépôt manuel</span>
+              <FormMouvementBanque onValider={(h, t, n) => ajouterMouvementBanque("depot", h, t, n)} defautTaux={pay.tauxHS100} />
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
+              {banque.mouvements.length === 0 && <p className="p-3 text-xs text-slate-500">Aucun mouvement enregistré.</p>}
+              {banque.mouvements.slice().reverse().map((m) => (
+                <div key={m.id} className="p-2.5 flex items-center justify-between text-xs gap-2">
+                  <span className="font-mono text-slate-400 w-20">{m.date}</span>
+                  <span className={m.type === "depot" ? "text-emerald-400" : "text-rose-400"}>{m.type === "depot" ? "+" : "-"}{Number(m.heures).toFixed(2)}h</span>
+                  <span className="text-slate-500">{(Number(m.taux) * 100).toFixed(0)}%</span>
+                  <span className="flex-1 text-slate-400 truncate">{m.note}</span>
+                  <button onClick={() => supprimerMouvementBanque(m.id)} className="text-rose-400"><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ============ ONGLET GARAGE ============ */}
+        {tab === "garage" && (
+          <div className="flex flex-col gap-3">
+            <Section titre="Tracteur">
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Immatriculation</span>
+                <input type="text" value={garage.tracteur.immatriculation} onChange={(e) => updateGarageVehicule("tracteur", "immatriculation", e.target.value)}
+                  className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="AA-123-BB" />
+              </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Kilométrage actuel</span>
+                <input type="number" value={garage.tracteur.kmActuel} onChange={(e) => updateGarageVehicule("tracteur", "kmActuel", e.target.value)}
+                  className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="km" />
+              </label>
+            </Section>
+
+            <Section titre="Remorque">
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Immatriculation</span>
+                <input type="text" value={garage.remorque.immatriculation} onChange={(e) => updateGarageVehicule("remorque", "immatriculation", e.target.value)}
+                  className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="AA-123-BB" />
+              </label>
+            </Section>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Entretiens</span>
+              <FormEntretien onValider={ajouterEntretien} categories={categoriesEntretien} onAjouterCategorie={ajouterCategorieEntretien} />
+              <div className="flex flex-wrap gap-1.5">
+                {categoriesEntretien.map((c) => (
+                  <span key={c} className="flex items-center gap-1 text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded-full">
+                    {c}
+                    {c !== "Autre" && <button onClick={() => supprimerCategorieEntretien(c)} className="text-rose-400"><Trash2 size={10} /></button>}
+                  </span>
+                ))}
+              </div>
+              <div className="flex flex-col gap-1.5 mt-1">
+                {garage.entretiens.length === 0 && <p className="text-xs text-slate-500">Aucun entretien enregistré.</p>}
+                {garage.entretiens.slice().reverse().map((e) => {
+                  const aFaire = e.prochainKm && garage.tracteur.kmActuel && Number(garage.tracteur.kmActuel) >= Number(e.prochainKm);
+                  return (
+                    <div key={e.id} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5 gap-2">
+                      <span className="font-mono text-slate-400 w-20">{e.date}</span>
+                      <span className="flex-1 text-slate-300">{e.type} — {e.km} km</span>
+                      {e.prochainKm && <span className={`px-1.5 py-0.5 rounded-full font-bold ${aFaire ? "bg-rose-900/50 text-rose-300" : "bg-emerald-900/40 text-emerald-300"}`}>{aFaire ? "À faire" : `Prochain : ${e.prochainKm} km`}</span>}
+                      <button onClick={() => supprimerEntretien(e.id)} className="text-rose-400"><Trash2 size={13} /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Dépannages (crevaison, panne...)</span>
+              <FormDepannage onValider={ajouterDepannage} categories={categoriesDepannage} onAjouterCategorie={ajouterCategorieDepannage} />
+              <div className="flex flex-wrap gap-1.5">
+                {categoriesDepannage.map((c) => (
+                  <span key={c} className="flex items-center gap-1 text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded-full">
+                    {c}
+                    {c !== "Autre" && <button onClick={() => supprimerCategorieDepannage(c)} className="text-rose-400"><Trash2 size={10} /></button>}
+                  </span>
+                ))}
+              </div>
+              <div className="flex flex-col gap-1.5 mt-1">
+                {garage.depannages.length === 0 && <p className="text-xs text-slate-500">Aucun dépannage enregistré.</p>}
+                {garage.depannages.slice().reverse().map((d) => (
+                  <div key={d.id} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5 gap-2">
+                    <span className="font-mono text-slate-400 w-20">{d.date}</span>
+                    <span className="flex-1 text-slate-300">{d.type} — {d.note}</span>
+                    {d.cout && <span className="text-amber-400 font-mono">{Number(d.cout).toFixed(2)} €</span>}
+                    <button onClick={() => supprimerDepannage(d.id)} className="text-rose-400"><Trash2 size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============ ONGLET CARBURANT ============ */}
+        {tab === "carburant" && (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-2">
+              <StatCard icon={Fuel} label="Conso. moyenne" value={`${consommationGasoil.consoMoyenne.toFixed(1)} L/100km`} accent="text-amber-400" />
+              <StatCard icon={Fuel} label="Gasoil (période)" value={`${consommationGasoil.totalLitres.toFixed(0)} L`} sub={`${consommationGasoil.totalKm.toFixed(0)} km`} accent="text-emerald-400" />
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Ajouter un plein / une charge</span>
+              <FormPlein onValider={ajouterPlein} />
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
+              {carburant.pleins.length === 0 && <p className="p-3 text-xs text-slate-500">Aucun plein enregistré.</p>}
+              {carburant.pleins.slice().reverse().map((p) => {
+                const badge = { gasoil: "bg-amber-900/40 text-amber-300", adblue: "bg-sky-900/40 text-sky-300", fioul_rouge: "bg-rose-900/40 text-rose-300" }[p.type];
+                const labelType = { gasoil: "Gasoil", adblue: "AdBlue", fioul_rouge: "Fioul rouge" }[p.type];
+                return (
+                  <div key={p.id} className="p-2.5 flex items-center justify-between text-xs gap-2">
+                    <span className="font-mono text-slate-400 w-20">{p.date}</span>
+                    <span className={`px-1.5 py-0.5 rounded-full font-bold ${badge}`}>{labelType}</span>
+                    <span className="flex-1 text-slate-300">{Number(p.litres).toFixed(1)} L{p.km ? ` — ${p.km} km` : ""}</span>
+                    <span className="font-mono text-amber-400">{Number(p.prix).toFixed(2)} €</span>
+                    <button onClick={() => supprimerPlein(p.id)} className="text-rose-400"><Trash2 size={13} /></button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {consommationGasoil.intervalles.length > 0 && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-1.5">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Détail consommation gasoil</span>
+                {consommationGasoil.intervalles.slice().reverse().map((i, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs">
+                    <span className="font-mono text-slate-400">{i.date}</span>
+                    <span className="text-slate-300">{i.distKm.toFixed(0)} km — {i.litres.toFixed(1)} L</span>
+                    <span className="font-mono font-bold text-amber-400">{i.conso.toFixed(1)} L/100km</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============ ONGLET RAPPORTS ============ */}
+        {tab === "rapports" && (
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-1 bg-slate-800/60 rounded-xl p-1">
+              {["jour", "semaine", "mois", "annee"].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriodType(p)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize ${periodType === p ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}
+                >{p === "annee" ? "Année" : p}</button>
+              ))}
+            </div>
+            <input type="date" value={refDate} onChange={(e) => setRefDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+
+            <div className="flex gap-2 flex-wrap">
+              <StatCard icon={Clock} label="Service" value={fmtHM(periodTotals.serviceMin)} accent="text-emerald-400" />
+              <StatCard icon={Moon} label="Nuit" value={fmtHM(periodTotals.nightMin)} accent="text-indigo-400" />
+              <StatCard icon={Euro} label="Frais" value={`${periodTotals.frais.toFixed(2)} €`} accent="text-amber-400" />
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
+              {entriesInPeriod.length === 0 && <p className="p-3 text-xs text-slate-500">Aucune journée sur cette période.</p>}
+              {entriesInPeriod.map((e) => {
+                const c = computeEntry(e, rates, nowLocalISO());
+                return (
+                  <div key={e.id} className="p-2.5 flex items-center justify-between text-xs">
+                    <span className="font-mono text-slate-300">{e.date}</span>
+                    <span className="text-emerald-400">{fmtHM(c.serviceMin)}</span>
+                    <span className="text-indigo-400">{fmtHM(c.nightWorkedMin)} nuit</span>
+                    <span className="text-amber-400">{c.frais.toFixed(2)} €</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={envoyerRapportEmail} className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> Envoyer par e-mail</button>
+              <button onClick={supprimerPeriode} className="flex items-center justify-center gap-1.5 bg-rose-900/40 text-rose-300 rounded-lg py-2 px-3 text-xs font-semibold"><Trash2 size={14} /> Supprimer</button>
+            </div>
+          </div>
+        )}
+
+        {/* ============ ONGLET PAIE ============ */}
+        {tab === "paie" && (
+          <div className="flex flex-col gap-3">
+            <input type="month" value={payMonth} onChange={(e) => setPayMonth(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+
+            <div className="flex gap-1.5 flex-wrap">
+              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS25 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 25% {rates.activerHS25 ? "activé" : "désactivé"}</span>
+              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS50 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 50% {rates.activerHS50 ? "activé" : "désactivé"}</span>
+              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS100 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 100% {rates.activerHS100 ? "activé" : "désactivé"}</span>
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+              <LignePaie titre={`Base 0–${rates.seuil1}h (normal)`} heures={pay.b0} taux={rates.tauxHoraire} montant={pay.payNormal} />
+              <LignePaie titre={`Équivalence 25% (${rates.seuil1}–${rates.seuil2}h)`} heures={pay.b1} taux={rates.tauxHoraire * 1.25} montant={pay.payEquiv} />
+              <LignePaie titre={`HS ${(pay.tauxHS25 * 100).toFixed(0)}% (${rates.seuil2}–${rates.seuil3}h)`} heures={pay.b2} taux={rates.tauxHoraire * pay.tauxHS25} montant={pay.payHS25} />
+              <LignePaie titre={`HS ${(pay.tauxHS50 * 100).toFixed(0)}% (${rates.seuil3}–${rates.seuil4}h)`} heures={pay.b3} taux={rates.tauxHoraire * pay.tauxHS50} montant={pay.payHS50} />
+              <LignePaie titre={`HS ${(pay.tauxHS100 * 100).toFixed(0)}% (${rates.seuil4}–${rates.seuilBanque}h)`} heures={pay.b4} taux={rates.tauxHoraire * pay.tauxHS100} montant={pay.payHS100} />
+              <LignePaie titre="Majoration de nuit (+20%)" heures={pay.nightH} taux={rates.tauxHoraire * 0.20} montant={pay.payNight} />
+            </div>
+
+            {pay.bBanque > 0 && (
+              <div className="bg-indigo-900/30 border border-indigo-700 rounded-xl p-3 flex items-center justify-between text-xs">
+                <span className="text-indigo-300">Au-delà de {rates.seuilBanque}h : versé en banque d'heures (non payé ce mois)</span>
+                <span className="font-mono font-bold text-indigo-300">{pay.bBanque.toFixed(2)} h</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <StatCard icon={Clock} label="Total heures" value={`${pay.H.toFixed(2)} h`} accent="text-emerald-400" />
+              <StatCard icon={Moon} label="Dont nuit" value={`${pay.nightH.toFixed(2)} h`} accent="text-indigo-400" />
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-1.5 text-sm">
+              <Ligne label="Salaire brut estimé" value={`${pay.salaireBrut.toFixed(2)} €`} />
+              <Ligne label="Salaire net estimé" value={`${pay.salaireNet.toFixed(2)} €`} />
+              <Ligne label="Frais de route" value={`${pay.frais.toFixed(2)} €`} />
+              <div className="border-t border-slate-700 my-1" />
+              <Ligne label={<b>TOTAL NET ESTIMÉ</b>} value={<b className="text-amber-400 text-lg">{pay.netTotal.toFixed(2)} €</b>} />
+              <p className="text-[10px] text-slate-500 mt-1 flex items-start gap-1"><AlertCircle size={12} className="mt-0.5 shrink-0" /> Estimation indicative — les indemnités de frais ne sont généralement pas soumises aux cotisations.</p>
+            </div>
+
+            <button onClick={envoyerPaieEmail} className="flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> Envoyer l'estimation par e-mail</button>
+          </div>
+        )}
+
+        {/* ============ ONGLET RÉGLAGES ============ */}
+        {tab === "reglages" && (
+          <div className="flex flex-col gap-4">
+            <Section titre="Taux horaire & paie">
+              <ChampNombre label="Taux horaire de base (€)" value={rates.tauxHoraire} onChange={(v) => updateRate("tauxHoraire", v)} />
+              <ChampNombre label="Coefficient net / brut" value={rates.coefNet} onChange={(v) => updateRate("coefNet", v)} step="0.01" />
+            </Section>
+
+            <Section titre="Paliers du contrat (heures)">
+              <ChampNombre label="Fin taux normal" value={rates.seuil1} onChange={(v) => updateRate("seuil1", v)} />
+              <ChampNombre label="Fin équivalence 25%" value={rates.seuil2} onChange={(v) => updateRate("seuil2", v)} />
+              <ChampNombre label="Fin HS 25%" value={rates.seuil3} onChange={(v) => updateRate("seuil3", v)} />
+              <ChampNombre label="Fin HS 50%" value={rates.seuil4} onChange={(v) => updateRate("seuil4", v)} />
+              <ChampNombre label="Plafond payé par l'employeur — banque au-delà (h)" value={rates.seuilBanque} onChange={(v) => updateRate("seuilBanque", v)} />
+            </Section>
+
+            <Section titre="Majorations activables">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Heures sup. 25%</span>
+                <ToggleActif value={rates.activerHS25} onChange={(v) => updateRate("activerHS25", v)} />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Heures sup. 50%</span>
+                <ToggleActif value={rates.activerHS50} onChange={(v) => updateRate("activerHS50", v)} />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Heures sup. 100%</span>
+                <ToggleActif value={rates.activerHS100} onChange={(v) => updateRate("activerHS100", v)} />
+              </div>
+              <p className="text-[10px] text-slate-500">Un palier désactivé garde le taux du palier actif précédent au lieu d'être exclu.</p>
+            </Section>
+
+            <Section titre="Amplitude & repos réglementaires">
+              <ChampNombre label="Amplitude normale max (h)" value={rates.ampliBase} onChange={(v) => updateRate("ampliBase", v)} />
+              <ChampNombre label="Amplitude exceptionnelle max (h)" value={rates.ampliExcep} onChange={(v) => updateRate("ampliExcep", v)} />
+              <ChampNombre label="Occurrences exceptionnelles autorisées / semaine" value={rates.ampliExcepQuota} onChange={(v) => updateRate("ampliExcepQuota", v)} />
+              <ChampNombre label="Repos journalier normal (h)" value={rates.reposNormal} onChange={(v) => updateRate("reposNormal", v)} />
+              <ChampNombre label="Repos réduit si compensé (h)" value={rates.reposReduit} onChange={(v) => updateRate("reposReduit", v)} />
+              <ChampNombre label="Coupure de compensation minimale (h)" value={rates.reposCompensation} onChange={(v) => updateRate("reposCompensation", v)} />
+            </Section>
+
+            <Section titre="Mode Routier — fin impérative & alertes">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Activer le mode Routier</span>
+                <ToggleActif value={rates.activerModeRoutier} onChange={(v) => updateRate("activerModeRoutier", v)} />
+              </div>
+              {rates.activerModeRoutier && (
+                <>
+                  <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                    <span>Début journée</span>
+                    <input type="time" value={rates.routierHeureJourDebut} onChange={(e) => updateRate("routierHeureJourDebut", e.target.value)}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100" />
+                  </label>
+                  <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                    <span>Fin journée</span>
+                    <input type="time" value={rates.routierHeureJourFin} onChange={(e) => updateRate("routierHeureJourFin", e.target.value)}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100" />
+                  </label>
+                  <ChampNombre label="Amplitude si départ en journée (h)" value={rates.routierAmplitudeJour} onChange={(v) => updateRate("routierAmplitudeJour", v)} />
+                  <ChampNombre label="Amplitude si départ de nuit (h)" value={rates.routierAmplitudeNuit} onChange={(v) => updateRate("routierAmplitudeNuit", v)} />
+                  <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                    <span>Seuil d'alerte</span>
+                    <select value={rates.alerteMinutes} onChange={(e) => updateRate("alerteMinutes", Number(e.target.value))}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100">
+                      <option value={30}>30 minutes</option>
+                      <option value={20}>20 minutes</option>
+                      <option value={15}>15 minutes</option>
+                      <option value={10}>10 minutes</option>
+                    </select>
+                  </label>
+                  <p className="text-[10px] text-slate-500">Une alerte critique s'affiche automatiquement à 5 minutes de la fin, quel que soit le seuil choisi ci-dessus.</p>
+                </>
+              )}
+            </Section>
+
+            <Section titre="Apparence">
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Couleur d'accent</span>
+                <input type="color" value={theme.accent} onChange={(e) => updateTheme("accent", e.target.value)} className="w-10 h-8 rounded bg-transparent" />
+              </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Couleur de fond</span>
+                <input type="color" value={theme.fond} onChange={(e) => updateTheme("fond", e.target.value)} className="w-10 h-8 rounded bg-transparent" />
+              </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Couleur du texte</span>
+                <input type="color" value={theme.texte} onChange={(e) => updateTheme("texte", e.target.value)} className="w-10 h-8 rounded bg-transparent" />
+              </label>
+              <button onClick={() => setTheme(DEFAULT_THEME)} className="text-xs text-slate-400 underline self-start">Réinitialiser les couleurs</button>
+            </Section>
+
+            {isAdmin ? (
+              <Section titre="Bannière publicitaire (accès administrateur)">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Activer la bannière (pour tous les utilisateurs)</span>
+                  <ToggleActif value={publicites.actif} onChange={(v) => setPublicites((p) => ({ ...p, actif: v }))} />
+                </div>
+                <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                  <span>Rotation (secondes)</span>
+                  <input type="number" min="5" value={publicites.intervalleSecondes}
+                    onChange={(e) => setPublicites((p) => ({ ...p, intervalleSecondes: Number(e.target.value) || 60 }))}
+                    className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100 text-right" />
+                </label>
+                <div className="flex flex-col gap-2 mt-1">
+                  {publicites.annonces.map((a) => (
+                    <div key={a.id} className="bg-slate-800/60 rounded-lg p-2 flex flex-col gap-1.5">
+                      <input type="text" value={a.texte} onChange={(e) => modifierAnnonce(a.id, { texte: e.target.value })}
+                        placeholder="Texte de l'annonce" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+                      <div className="flex gap-2">
+                        <input type="text" value={a.lien} onChange={(e) => modifierAnnonce(a.id, { lien: e.target.value })}
+                          placeholder="Lien (optionnel, https://...)" className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+                        <button onClick={() => supprimerAnnonce(a.id)} className="text-rose-400 px-2"><Trash2 size={16} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={ajouterAnnonce} className="flex items-center justify-center gap-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg py-1.5"><Plus size={13} /> Ajouter une annonce</button>
+                <button onClick={enregistrerPublicitesPartagees} className="flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg py-1.5 mt-1">Publier pour tous les utilisateurs</button>
+                <p className="text-[10px] text-slate-500 mt-1">Ces annonces sont visibles par tous les comptes de l'application. Pour de la publicité rémunératrice automatique (Google AdMob), une intégration séparée est nécessaire.</p>
+              </Section>
+            ) : (
+              <Section titre="Bannière publicitaire">
+                <p className="text-xs text-slate-500">Seul l'administrateur de l'application peut gérer les publicités.</p>
+              </Section>
+            )}
+
+            <Section titre="Frais de route (France / Étranger)">
+              <ChampNombre label="Casse-croûte France (€)" value={rates.casseCroute} onChange={(v) => updateRate("casseCroute", v)} step="0.01" />
+              <ChampNombre label="Casse-croûte Étranger (€)" value={rates.casseCrouteEtr} onChange={(v) => updateRate("casseCrouteEtr", v)} step="0.01" />
+              <ChampNombre label="Repas France (€)" value={rates.repas} onChange={(v) => updateRate("repas", v)} step="0.01" />
+              <ChampNombre label="Repas Étranger (€)" value={rates.repasEtr} onChange={(v) => updateRate("repasEtr", v)} step="0.01" />
+              <ChampNombre label="Découche France (€)" value={rates.decouche} onChange={(v) => updateRate("decouche", v)} step="0.01" />
+              <ChampNombre label="Découche Étranger (€)" value={rates.decoucheEtr} onChange={(v) => updateRate("decoucheEtr", v)} step="0.01" />
+              <ChampNombre label="Week-end France (€)" value={rates.weekend} onChange={(v) => updateRate("weekend", v)} step="0.01" />
+              <ChampNombre label="Week-end Étranger (€)" value={rates.weekendEtr} onChange={(v) => updateRate("weekendEtr", v)} step="0.01" />
+            </Section>
+
+            <Section titre="Mises à jour">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Version installée</span>
+                <span className="font-mono text-slate-200">{APP_VERSION}</span>
+              </div>
+              {miseAJourDisponible ? (
+                <div className="bg-emerald-900/30 border border-emerald-700 rounded-lg p-3 flex flex-col gap-2">
+                  <span className="text-xs text-emerald-300 font-semibold">Nouvelle version disponible : {versionDistante.derniereVersion}</span>
+                  <a href={versionDistante.lien} target="_blank" rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg py-2">
+                    <Save size={14} /> Télécharger la mise à jour
+                  </a>
+                  <p className="text-[10px] text-slate-500">Ouvre le fichier téléchargé pour l'installer par-dessus la version actuelle.</p>
+                </div>
+              ) : (
+                <p className="text-xs text-emerald-400">✓ Tu as la dernière version.</p>
+              )}
+              <button onClick={verifierMiseAJour} className="text-xs text-slate-400 underline self-start">Vérifier maintenant</button>
+
+              {isAdmin && (
+                <div className="border-t border-slate-800 pt-2 mt-1 flex flex-col gap-2">
+                  <span className="text-[10px] uppercase tracking-wide text-slate-500">Publier une nouvelle version (admin)</span>
+                  <input type="text" placeholder="Numéro de version (ex: 1.1.0)" value={nouvelleVersionForm.derniereVersion}
+                    onChange={(e) => setNouvelleVersionForm((f) => ({ ...f, derniereVersion: e.target.value }))}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+                  <input type="text" placeholder="Lien de téléchargement de l'APK" value={nouvelleVersionForm.lien}
+                    onChange={(e) => setNouvelleVersionForm((f) => ({ ...f, lien: e.target.value }))}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+                  <button onClick={publierNouvelleVersion} className="bg-indigo-600 text-white text-xs font-semibold rounded-lg py-1.5">Publier cette version</button>
+                </div>
+              )}
+            </Section>
+
+            <Section titre="Accès Web">
+              <p className="text-[10px] text-slate-500">Utilise le même compte pour accéder à tes données depuis un navigateur (ordinateur, autre téléphone).</p>
+              <a href={LIEN_WEB_APP} target="_blank" rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 bg-sky-600 text-white text-xs font-semibold rounded-lg py-2">
+                <Search size={14} /> Ouvrir la version Web
+              </a>
+            </Section>
+
+            <Section titre="Sauvegarde des données">
+              <p className="text-[10px] text-slate-500">Enregistre un fichier de sauvegarde sur ton téléphone, à envoyer par e-mail avant un changement d'appareil.</p>
+              <button onClick={exporterDonnees} className="flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg py-2">
+                <Save size={14} /> Exporter et partager la sauvegarde
+              </button>
+              <label className="flex items-center justify-center gap-1.5 bg-slate-800 text-slate-300 text-xs font-semibold rounded-lg py-2 cursor-pointer border border-slate-700">
+                <FileText size={14} /> Restaurer depuis un fichier
+                <input type="file" accept=".json" className="hidden" onChange={(e) => e.target.files[0] && importerDonnees(e.target.files[0])} />
+              </label>
+            </Section>
+
+            <button onClick={supprimerTout} className="flex items-center justify-center gap-2 bg-rose-900/40 text-rose-300 rounded-lg py-2.5 text-sm font-semibold">
+              <Trash2 size={15} /> Supprimer toutes les données
+            </button>
+          </div>
+        )}
+
+        {tab === "admin" && isAdmin && <PanneauAdmin />}
+      </div>
+
+      <div className="text-center text-[10px] text-slate-600 mt-8 pb-2 font-mono">
+        Cette application a été créée par FARDOUX Mathieu — version Yoda 0.1
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Sous-composants d'aide ---------- */
+
+function FormMouvementBanque({ onValider, defautTaux }) {
+  const [heures, setHeures] = useState("");
+  const [taux, setTaux] = useState(defautTaux || 1.5);
+  const [note, setNote] = useState("");
+  const valider = () => {
+    if (!heures) return;
+    onValider(heures, taux, note);
+    setHeures(""); setNote("");
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        <input type="number" step="0.01" placeholder="Heures" value={heures} onChange={(e) => setHeures(e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+        <input type="number" step="0.01" placeholder="Taux (ex: 1.5)" value={taux} onChange={(e) => setTaux(e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      </div>
+      <input type="text" placeholder="Note (optionnel)" value={note} onChange={(e) => setNote(e.target.value)}
+        className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      <button onClick={valider} className="bg-sky-600 text-white text-xs font-semibold rounded-lg py-1.5">Ajouter</button>
+    </div>
+  );
+}
+
+function BanniereRotative({ annonce, theme }) {
+  if (!annonce) return null;
+  const contenu = (
+    <div className="px-4 py-2 text-center text-xs font-semibold truncate transition-opacity duration-500"
+      style={{ backgroundColor: theme.accent, color: "#0f172a" }} key={annonce.id}>
+      {annonce.texte}
+    </div>
+  );
+  if (annonce.lien) {
+    return <a href={annonce.lien} target="_blank" rel="noreferrer" className="block">{contenu}</a>;
+  }
+  return contenu;
+}
+
+function FraisLigne({ titre, montant, value, onChange }) {
+  return (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-sm">{titre}</span>
+        <ToggleActif value={value.actif} onChange={(v) => onChange({ ...value, actif: v })} />
+      </div>
+      {value.actif && (
+        <ToggleEtranger
+          value={value.etranger}
+          onChange={(v) => onChange({ ...value, etranger: v })}
+          montant={montant}
+        />
+      )}
+    </div>
+  );
+}
+
+function ToggleActif({ value, onChange }) {
+  return (
+    <button
+      onClick={() => onChange(!value)}
+      className={`text-xs font-bold px-3 py-1.5 rounded-full transition ${value ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400"}`}
+    >
+      {value ? "Activé" : "Désactivé"}
+    </button>
+  );
+}
+
+function ToggleEtranger({ value, onChange, montant, montantFr, montantEtr }) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <div className="flex gap-1">
+        <button onClick={() => onChange(false)} className={`px-2.5 py-1 rounded-lg ${!value ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>France</button>
+        <button onClick={() => onChange(true)} className={`px-2.5 py-1 rounded-lg ${value ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>Étranger</button>
+      </div>
+      <span className="font-mono text-amber-400">{(montant ?? (value ? montantEtr : montantFr)).toFixed(2)} €</span>
+    </div>
+  );
+}
+
+function GeoBloc({ lieu, lat, lon, adresse, onLieu, onGeoloc, onCoordonnees }) {
+  const [recherche, setRecherche] = useState("");
+  const [rechercheStatus, setRechercheStatus] = useState("");
+
+  const chercherAdresse = async () => {
+    if (!recherche.trim()) return;
+    setRechercheStatus("Recherche…");
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(recherche)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        onCoordonnees(parseFloat(data[0].lat), parseFloat(data[0].lon), data[0].display_name);
+        if (!lieu) onLieu(data[0].display_name.split(",").slice(0, 2).join(","));
+        setRechercheStatus("Position trouvée ✓");
+      } else {
+        setRechercheStatus("Adresse introuvable.");
+      }
+    } catch (err) {
+      setRechercheStatus("Recherche indisponible ici (réseau bloqué dans cet aperçu). Fonctionne dans l'app hébergée.");
+    }
+    setTimeout(() => setRechercheStatus(""), 4000);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex gap-2">
+        <input
+          type="text" placeholder="Nom du lieu (optionnel)"
+          value={lieu} onChange={(e) => onLieu(e.target.value)}
+          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+        />
+        <button onClick={onGeoloc} className="flex items-center gap-1.5 bg-sky-600 rounded-lg px-3 text-xs font-semibold whitespace-nowrap"><MapPin size={14} /> Localiser moi</button>
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text" placeholder="Rechercher une adresse précise"
+          value={recherche} onChange={(e) => setRecherche(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && chercherAdresse()}
+          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+        />
+        <button onClick={chercherAdresse} className="flex items-center gap-1 bg-indigo-600 rounded-lg px-3 text-xs font-semibold"><Search size={14} /> Chercher</button>
+      </div>
+      {rechercheStatus && <span className="text-[11px] text-amber-400">{rechercheStatus}</span>}
+      {lat != null && lon != null && (
+        <div className="flex flex-col gap-2 mt-1">
+          {adresse && (
+            <div className="bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300">
+              📍 {adresse}
+            </div>
+          )}
+          <div className="rounded-lg overflow-hidden border border-slate-700" style={{ height: 180 }}>
+            <iframe
+              title="Carte"
+              width="100%" height="100%" style={{ border: 0 }}
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${lon - 0.005}%2C${lat - 0.005}%2C${lon + 0.005}%2C${lat + 0.005}&layer=mapnik&marker=${lat}%2C${lon}`}
+            />
+          </div>
+          <a
+            href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`}
+            target="_blank" rel="noreferrer"
+            className="text-[11px] text-sky-400 underline"
+          >
+            Ouvrir en plein écran ({lat.toFixed(4)}, {lon.toFixed(4)})
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FormEntretien({ onValider, categories, onAjouterCategorie }) {
+  const [date, setDate] = useState(todayISODate());
+  const [type, setType] = useState(categories[0] || "");
+  const [km, setKm] = useState("");
+  const [prochainKm, setProchainKm] = useState("");
+  const [nouvelleCategorie, setNouvelleCategorie] = useState("");
+  const valider = () => {
+    if (!type || !km) return;
+    onValider({ date, type, km, prochainKm });
+    setKm(""); setProchainKm("");
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+        <select value={type} onChange={(e) => setType(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <input type="number" placeholder="Km au moment" value={km} onChange={(e) => setKm(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+        <input type="number" placeholder="Prochain entretien (km)" value={prochainKm} onChange={(e) => setProchainKm(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      </div>
+      <div className="flex gap-2">
+        <input type="text" placeholder="+ Nouvelle catégorie" value={nouvelleCategorie} onChange={(e) => setNouvelleCategorie(e.target.value)}
+          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+        <button onClick={() => { onAjouterCategorie(nouvelleCategorie.trim()); setNouvelleCategorie(""); }} className="text-xs text-slate-400 border border-slate-700 rounded-lg px-3">Ajouter</button>
+      </div>
+      <button onClick={valider} className="bg-sky-600 text-white text-xs font-semibold rounded-lg py-1.5">Ajouter l'entretien</button>
+    </div>
+  );
+}
+
+function FormDepannage({ onValider, categories, onAjouterCategorie }) {
+  const [date, setDate] = useState(todayISODate());
+  const [type, setType] = useState(categories[0] || "");
+  const [note, setNote] = useState("");
+  const [cout, setCout] = useState("");
+  const [nouvelleCategorie, setNouvelleCategorie] = useState("");
+  const valider = () => {
+    onValider({ date, type, note, cout });
+    setNote(""); setCout("");
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+        <select value={type} onChange={(e) => setType(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      <input type="text" placeholder="Note" value={note} onChange={(e) => setNote(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      <input type="number" step="0.01" placeholder="Coût (€, optionnel)" value={cout} onChange={(e) => setCout(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      <div className="flex gap-2">
+        <input type="text" placeholder="+ Nouvelle catégorie" value={nouvelleCategorie} onChange={(e) => setNouvelleCategorie(e.target.value)}
+          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+        <button onClick={() => { onAjouterCategorie(nouvelleCategorie.trim()); setNouvelleCategorie(""); }} className="text-xs text-slate-400 border border-slate-700 rounded-lg px-3">Ajouter</button>
+      </div>
+      <button onClick={valider} className="bg-rose-600 text-white text-xs font-semibold rounded-lg py-1.5">Ajouter le dépannage</button>
+    </div>
+  );
+}
+
+function FormPlein({ onValider }) {
+  const [date, setDate] = useState(todayISODate());
+  const [type, setType] = useState("gasoil");
+  const [prix, setPrix] = useState("");
+  const [litres, setLitres] = useState("");
+  const [km, setKm] = useState("");
+  const valider = () => {
+    if (!prix || !litres) return;
+    onValider({ date, type, prix, litres, km: type === "gasoil" ? km : "" });
+    setPrix(""); setLitres(""); setKm("");
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+        <select value={type} onChange={(e) => setType(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
+          <option value="gasoil">Gasoil</option>
+          <option value="adblue">AdBlue</option>
+          <option value="fioul_rouge">Fioul rouge</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <input type="number" step="0.01" placeholder="Prix total (€)" value={prix} onChange={(e) => setPrix(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+        <input type="number" step="0.01" placeholder="Litres" value={litres} onChange={(e) => setLitres(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      </div>
+      {type === "gasoil" && (
+        <input type="number" placeholder="Kilométrage au compteur" value={km} onChange={(e) => setKm(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      )}
+      <button onClick={valider} className="bg-amber-600 text-white text-xs font-semibold rounded-lg py-1.5">Ajouter</button>
+    </div>
+  );
+}
+
+function LignePaie({ titre, heures, taux, montant }) {
+  return (
+    <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 last:border-0 text-xs">
+      <span className="text-slate-400">{titre}</span>
+      <span className="font-mono text-slate-300">{heures.toFixed(2)}h × {taux.toFixed(2)}€</span>
+      <span className="font-mono font-bold text-slate-100">{montant.toFixed(2)} €</span>
+    </div>
+  );
+}
+
+function Ligne({ label, value }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-slate-400">{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function Section({ titre, children }) {
+  return (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+      <h3 className="text-xs uppercase tracking-wide text-amber-400 font-bold">{titre}</h3>
+      {children}
+    </div>
+  );
+}
+
+function ChampNombre({ label, value, onChange }) {
+  // Champ texte (et non "number") pour accepter la virgule française
+  // et un nombre illimité de décimales (ex : 12,927), sans que le
+  // navigateur ne rejette ou n'arrondisse la saisie.
+  const [texte, setTexte] = useState(String(value ?? "").replace(".", ","));
+
+  const parseFR = (str) => {
+    const norm = String(str).replace(/\s/g, "").replace(",", ".");
+    const n = parseFloat(norm);
+    return isNaN(n) ? null : n;
+  };
+
+  useEffect(() => {
+    const num = parseFR(texte);
+    if (num !== value) setTexte(String(value ?? "").replace(".", ","));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const handleChange = (e) => {
+    const raw = e.target.value;
+    // n'autorise que chiffres, une virgule ou un point
+    if (!/^-?\d*[.,]?\d*$/.test(raw)) return;
+    setTexte(raw);
+    const n = parseFR(raw);
+    if (n !== null) onChange(n);
+  };
+
+  return (
+    <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+      <span>{label}</span>
+      <input
+        type="text" inputMode="decimal" value={texte}
+        onChange={handleChange}
+        onBlur={() => setTexte(String(value ?? "").replace(".", ","))}
+        className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100 text-right"
+      />
+    </label>
+  );
+}
+
+/* =========================================================================
+   AUTHENTIFICATION — Connexion, création de compte, verrouillage admin
+   ========================================================================= */
+
+function EcranConnexion() {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [motDePasse, setMotDePasse] = useState("");
+  const [erreur, setErreur] = useState("");
+  const [chargement, setChargement] = useState(false);
+  const [messageReset, setMessageReset] = useState("");
+
+  const valider = async () => {
+    setErreur(""); setChargement(true);
+    try {
+      if (mode === "signup") {
+        const cred = await auth.createUserWithEmailAndPassword(email, motDePasse);
+        await db.collection("users").doc(cred.user.uid).set({
+          email, createdAt: firebase.firestore.FieldValue.serverTimestamp(), freeAccess: false, locked: false,
+        });
+      } else {
+        await auth.signInWithEmailAndPassword(email, motDePasse);
+      }
+    } catch (err) {
+      const messages = {
+        "auth/email-already-in-use": "Cette adresse e-mail a déjà un compte — connecte-toi plutôt.",
+        "auth/invalid-email": "Adresse e-mail invalide.",
+        "auth/weak-password": "Le mot de passe doit contenir au moins 6 caractères.",
+        "auth/wrong-password": "Mot de passe incorrect.",
+        "auth/user-not-found": "Aucun compte avec cette adresse e-mail.",
+        "auth/invalid-credential": "E-mail ou mot de passe incorrect.",
+      };
+      console.error("Erreur Firebase Auth:", err.code, err.message);
+      setErreur(messages[err.code] || `Erreur (${err.code || "inconnue"}) : ${err.message || "détails indisponibles"}`);
+    }
+    setChargement(false);
+  };
+
+  const reinitialiserMotDePasse = async () => {
+    if (!email) { setErreur("Renseigne ton e-mail ci-dessus d'abord."); return; }
+    try {
+      await auth.sendPasswordResetEmail(email);
+      setMessageReset("E-mail de réinitialisation envoyé ✓");
+    } catch (err) {
+      setErreur("Impossible d'envoyer l'e-mail de réinitialisation.");
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-slate-900/60 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4">
+        <div className="text-center">
+          <h1 className="text-xl font-black tracking-tight text-amber-400">MON CARNET DE BORD</h1>
+          <p className="text-[11px] text-slate-500 font-mono">Yoda 0.1 — FARDOUX Mathieu</p>
+        </div>
+
+        <div className="flex gap-1 bg-slate-800/60 rounded-xl p-1">
+          <button onClick={() => setMode("login")} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${mode === "login" ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}>Connexion</button>
+          <button onClick={() => setMode("signup")} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${mode === "signup" ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}>Créer un compte</button>
+        </div>
+
+        <input type="email" placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+        <input type="password" placeholder="Mot de passe (6 caractères min.)" value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+
+        {erreur && <p className="text-xs text-rose-400">{erreur}</p>}
+        {messageReset && <p className="text-xs text-emerald-400">{messageReset}</p>}
+
+        <button onClick={valider} disabled={chargement || !email || !motDePasse}
+          className="bg-amber-500 text-slate-950 font-bold text-sm rounded-lg py-2.5 disabled:opacity-50">
+          {chargement ? "Patiente…" : mode === "signup" ? "Créer mon compte" : "Se connecter"}
+        </button>
+
+        {mode === "login" && (
+          <button onClick={reinitialiserMotDePasse} className="text-xs text-slate-400 underline">Mot de passe oublié ?</button>
+        )}
+
+        <p className="text-[10px] text-slate-500 text-center">
+          Un nouveau compte bénéficie de {DUREE_ESSAI_JOURS} jours d'essai gratuit automatique.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function EcranMessage({ titre, message, action }) {
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-slate-900/60 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4 text-center">
+        <h1 className="text-lg font-black text-amber-400">{titre}</h1>
+        <p className="text-sm text-slate-300">{message}</p>
+        {action}
+      </div>
+    </div>
+  );
+}
+
+function PanneauAdmin() {
+  const [utilisateurs, setUtilisateurs] = useState([]);
+  const [chargement, setChargement] = useState(true);
+  const [filtre, setFiltre] = useState("");
+
+  const charger = async () => {
+    setChargement(true);
+    try {
+      const snap = await db.collection("users").get();
+      setUtilisateurs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (err) { /* erreur silencieuse */ }
+    setChargement(false);
+  };
+
+  useEffect(() => { charger(); }, []);
+
+  const toggleChamp = async (id, champ, valeur) => {
+    try {
+      await db.collection("users").doc(id).update({ [champ]: valeur });
+      setUtilisateurs((prev) => prev.map((u) => (u.id === id ? { ...u, [champ]: valeur } : u)));
+    } catch (err) { /* erreur silencieuse */ }
+  };
+
+  const utilisateursFiltres = utilisateurs.filter((u) => (u.email || "").toLowerCase().includes(filtre.toLowerCase()));
+  const nbGratuits = utilisateurs.filter((u) => u.freeAccess).length;
+  const nbSansPub = utilisateurs.filter((u) => u.sansPub).length;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
+          <span className="text-[11px] text-slate-400">Comptes total</span>
+          <span className="font-mono font-bold text-lg text-slate-100">{utilisateurs.length}</span>
+        </div>
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
+          <span className="text-[11px] text-slate-400">Accès gratuit / Sans pub</span>
+          <span className="font-mono font-bold text-lg text-amber-400">{nbGratuits} / {nbSansPub}</span>
+        </div>
+      </div>
+      <input type="text" placeholder="Rechercher un e-mail" value={filtre} onChange={(e) => setFiltre(e.target.value)}
+        className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+      <button onClick={charger} className="text-xs text-slate-400 underline self-start">Rafraîchir la liste</button>
+
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
+        {chargement && <p className="p-3 text-xs text-slate-500">Chargement…</p>}
+        {!chargement && utilisateursFiltres.length === 0 && <p className="p-3 text-xs text-slate-500">Aucun utilisateur.</p>}
+        {utilisateursFiltres.map((u) => {
+          const jours = Math.floor(joursDepuis(u.createdAt));
+          const essaiExpire = jours > 31;
+          return (
+            <div key={u.id} className="p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-200">{u.email}</span>
+                <span className="text-[10px] text-slate-500">Compte créé il y a {jours}j</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${essaiExpire ? "bg-rose-900/50 text-rose-300" : "bg-emerald-900/40 text-emerald-300"}`}>
+                  {essaiExpire ? "Essai 31j expiré" : "Essai 31j en cours"}
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${u.freeAccess ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>
+                  {u.freeAccess ? "Déverrouillable après 31j" : "Bloqué après 31j si non accès gratuit"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => toggleChamp(u.id, "freeAccess", !u.freeAccess)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.freeAccess ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400"}`}>
+                  Accès gratuit {u.freeAccess ? "activé" : "désactivé"}
+                </button>
+                <button onClick={() => toggleChamp(u.id, "locked", !u.locked)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.locked ? "bg-rose-600 text-white" : "bg-slate-800 text-slate-400"}`}>
+                  {u.locked ? "Verrouillé" : "Déverrouillé"}
+                </button>
+                <button onClick={() => toggleChamp(u.id, "sansPub", !u.sansPub)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.sansPub ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400"}`}>
+                  {u.sansPub ? "Sans pub" : "Avec pub"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function joursDepuis(timestamp) {
+  if (!timestamp) return 0;
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  return (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
+}
+
+function AuthGate() {
+  const [authUser, setAuthUser] = useState(null);
+  const [userDoc, setUserDoc] = useState(null);
+  const [pret, setPret] = useState(false);
+
+  useEffect(() => {
+    if (!firebaseConfigueValide) { setPret(true); return; }
+    const unsubscribe = auth.onAuthStateChanged(async (u) => {
+      setAuthUser(u);
+      if (u) {
+        try {
+          const ref = db.collection("users").doc(u.uid);
+          let snap = await ref.get();
+          if (!snap.exists) {
+            await ref.set({ email: u.email, createdAt: firebase.firestore.FieldValue.serverTimestamp(), freeAccess: false, locked: false });
+            snap = await ref.get();
+          }
+          setUserDoc(snap.data());
+        } catch (err) {
+          setUserDoc({ email: u.email, createdAt: null, freeAccess: false, locked: false });
+        }
+      } else {
+        setUserDoc(null);
+      }
+      setPret(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (!firebaseConfigueValide) {
+    return (
+      <>
+        <div className="bg-amber-500 text-slate-950 text-[11px] text-center py-1 font-semibold">
+          Mode local — configuration Firebase manquante. Comptes désactivés.
+        </div>
+        <MonCarnetDeBord user={null} isAdmin={true} onLogout={null} />
+      </>
+    );
+  }
+
+  if (!pret) return <EcranMessage titre="Chargement…" message="Un instant." />;
+  if (!authUser) return <EcranConnexion />;
+
+  const isAdmin = ADMIN_EMAILS.includes(authUser.email);
+  const locked = userDoc?.locked === true;
+  const essaiEcoule = joursDepuis(userDoc?.createdAt) > DUREE_ESSAI_JOURS;
+  const accesAutorise = isAdmin || userDoc?.freeAccess === true || !essaiEcoule;
+
+  const deconnexion = () => auth.signOut();
+
+  if (locked && !isAdmin) {
+    return (
+      <EcranMessage
+        titre="Compte verrouillé"
+        message="Ton accès a été suspendu par l'administrateur. Contacte-le pour plus d'informations."
+        action={<button onClick={deconnexion} className="bg-slate-800 text-slate-300 text-xs rounded-lg py-2">Se déconnecter</button>}
+      />
+    );
+  }
+
+  if (!accesAutorise) {
+    return (
+      <EcranMessage
+        titre="Essai gratuit terminé"
+        message={`Ta période d'essai de ${DUREE_ESSAI_JOURS} jours est terminée. Passe à l'abonnement pour continuer à utiliser l'application.`}
+        action={
+          <div className="flex flex-col gap-2">
+            <a href={LIEN_PAIEMENT} target="_blank" rel="noreferrer" className="bg-amber-500 text-slate-950 font-bold text-sm rounded-lg py-2.5">S'abonner</a>
+            <button onClick={deconnexion} className="bg-slate-800 text-slate-300 text-xs rounded-lg py-2">Se déconnecter</button>
+          </div>
+        }
+      />
+    );
+  }
+
+  return <MonCarnetDeBord user={authUser} isAdmin={isAdmin} onLogout={deconnexion} />;
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<AuthGate />);
+</script>
+<script>
+  (function () {
+    var source = document.getElementById("app-source").textContent;
+    var compiled = Babel.transform(source, {
+      presets: [["react", { runtime: "classic" }]]
+    }).code;
+    var script = document.createElement("script");
+    script.textContent = compiled;
+    document.body.appendChild(script);
+  })();
+</script>
+</body>
+</html>

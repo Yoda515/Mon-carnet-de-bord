@@ -1,0 +1,83 @@
+MON CARNET DE BORD — Yoda 0.1
+Créée par FARDOUX Mathieu
+================================================================
+
+CE QUE C'EST
+------------
+Une application web installable (PWA). Une fois installée, elle
+apparaît comme une icône sur l'écran d'accueil de ton téléphone,
+s'ouvre en plein écran (sans barre de navigateur) et fonctionne
+même sans connexion internet après la première ouverture.
+
+Ce n'est PAS une appli distribuée par l'App Store ou le Google
+Play Store : elle s'installe directement depuis le navigateur,
+sans compte développeur ni validation par Apple/Google.
+
+Les données (pointages, frais, réglages) sont stockées uniquement
+sur l'appareil, dans le navigateur. Pense à envoyer tes rapports
+par e-mail régulièrement (bouton prévu dans l'appli) pour ne rien
+perdre si tu changes de téléphone.
+
+------------------------------------------------------------------
+ÉTAPE 1 — METTRE L'APPLICATION EN LIGNE (une seule fois)
+------------------------------------------------------------------
+Il faut que les fichiers soient accessibles via une adresse
+internet (https://...) pour que l'installation et le mode
+hors-ligne fonctionnent correctement.
+
+Solution la plus simple, gratuite, sans compte :
+1. Va sur https://app.netlify.com/drop depuis un ordinateur
+2. Fais glisser le dossier complet "mcb-app" (celui qui contient
+   index.html, manifest.json, service-worker.js, icons/) dans la
+   zone de dépôt
+3. Netlify te donne une adresse du type :
+   https://un-nom-genere.netlify.app
+4. Ouvre cette adresse sur ton téléphone (Android ou iPhone)
+
+Autres solutions possibles : GitHub Pages, Vercel, ou ton propre
+hébergement web si tu en as déjà un.
+
+------------------------------------------------------------------
+ÉTAPE 2 — INSTALLER SUR ANDROID
+------------------------------------------------------------------
+1. Ouvre l'adresse dans Chrome
+2. Appuie sur le menu ⋮ (trois points, en haut à droite)
+3. Choisis "Ajouter à l'écran d'accueil" ou "Installer l'application"
+4. Confirme — l'icône "Mon carnet de bord" apparaît sur ton écran
+   d'accueil, comme une vraie application
+
+------------------------------------------------------------------
+ÉTAPE 3 — INSTALLER SUR IPHONE
+------------------------------------------------------------------
+1. Ouvre l'adresse dans Safari (obligatoire — ça ne fonctionne pas
+   depuis Chrome sur iPhone)
+2. Appuie sur le bouton Partager (le carré avec la flèche vers le
+   haut, en bas de l'écran)
+3. Fais défiler et choisis "Sur l'écran d'accueil"
+4. Appuie sur "Ajouter" — l'icône apparaît sur ton écran d'accueil
+
+------------------------------------------------------------------
+FONCTIONNEMENT HORS-LIGNE
+------------------------------------------------------------------
+Après la première ouverture (avec internet), l'application garde
+en mémoire tout ce qu'il faut pour fonctionner sans connexion.
+Ouvre-la au moins une fois en Wi-Fi avant un trajet sans réseau.
+
+------------------------------------------------------------------
+LA GÉOLOCALISATION
+------------------------------------------------------------------
+Au premier appui sur "Localiser" (découche / week-end), ton
+téléphone demandera l'autorisation d'accéder à ta position —
+accepte-la pour que l'enregistrement fonctionne. Le lien "Voir sur
+la carte" ouvre OpenStreetMap dans le navigateur.
+
+------------------------------------------------------------------
+CONTENU DU DOSSIER
+------------------------------------------------------------------
+index.html          → l'application elle-même
+manifest.json        → décrit l'app pour l'installation
+service-worker.js    → permet le fonctionnement hors-ligne
+icons/icon-192.png    → icône de l'application
+icons/icon-512.png    → icône haute résolution
+
+Ne renomme pas ces fichiers et garde-les tous dans le même dossier.
