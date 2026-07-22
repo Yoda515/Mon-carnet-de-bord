@@ -241,6 +241,8 @@ const TRADUCTIONS = {
       ajouter: "Ajouter", supprimer: "Supprimer", modifier: "Modifier", enregistrer: "Enregistrer", annuler: "Annuler",
       fermer: "Fermer", valider: "Valider", envoyer: "Envoyer", telecharger: "Télécharger", partager: "Partager",
     },
+    pointage: { amplitude: "Amplitude", pause: "Pause", tempsService: "Temps service", nuit: "Nuit (21h-6h)", enCours: "en cours", pourLaPaie: "pour la paie", majore: "majoré 20%" },
+    frais: { casseCroute: "Casse-croûte", repasMidi: "Repas midi", repasSoir: "Repas soir", decouche: "Découche", weekend: "Week-end", france: "France", etranger: "Étranger", totalJour: "Total frais du jour" },
   },
   en: {
     appTitre: "MY LOGBOOK", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
@@ -260,6 +262,8 @@ const TRADUCTIONS = {
       ajouter: "Add", supprimer: "Delete", modifier: "Edit", enregistrer: "Save", annuler: "Cancel",
       fermer: "Close", valider: "Confirm", envoyer: "Send", telecharger: "Download", partager: "Share",
     },
+    pointage: { amplitude: "Duty span", pause: "Break", tempsService: "Service time", nuit: "Night (9pm-6am)", enCours: "in progress", pourLaPaie: "for payroll", majore: "20% premium" },
+    frais: { casseCroute: "Snack allowance", repasMidi: "Lunch", repasSoir: "Dinner", decouche: "Overnight stay", weekend: "Weekend", france: "France", etranger: "Abroad", totalJour: "Total expenses for the day" },
   },
   "en-US": {
     appTitre: "MY LOGBOOK", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
@@ -279,6 +283,8 @@ const TRADUCTIONS = {
       ajouter: "Add", supprimer: "Delete", modifier: "Edit", enregistrer: "Save", annuler: "Cancel",
       fermer: "Close", valider: "Confirm", envoyer: "Send", telecharger: "Download", partager: "Share",
     },
+    pointage: { amplitude: "Duty span", pause: "Break", tempsService: "Service time", nuit: "Night (9pm-6am)", enCours: "in progress", pourLaPaie: "for payroll", majore: "20% premium" },
+    frais: { casseCroute: "Snack allowance", repasMidi: "Lunch", repasSoir: "Dinner", decouche: "Overnight stay", weekend: "Weekend", france: "France", etranger: "Abroad", totalJour: "Total expenses for the day" },
   },
   de: {
     appTitre: "MEIN FAHRTENBUCH", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
@@ -421,6 +427,28 @@ const emptyEntry = (date) => ({
 // stockage/diffusion : retire les caractères de contrôle invisibles, les
 // espaces superflus, et limite la longueur pour éviter tout abus (notamment
 // pour les champs diffusés à tous les utilisateurs, comme la bannière pub).
+// Charge un script externe à la demande (si pas déjà présent), avec un délai
+// d'attente raisonnable — utilisé pour jsPDF, chargé seulement au moment où
+// l'utilisateur génère réellement un rapport, plutôt que de dépendre du
+// chargement initial de la page (plus robuste face à un réseau lent).
+function chargerScriptSiAbsent(url, verifierPresence, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    if (verifierPresence()) { resolve(); return; }
+    const existant = document.querySelector(`script[src="${url}"]`);
+    if (!existant) {
+      const script = document.createElement("script");
+      script.src = url;
+      script.onerror = () => reject(new Error("Échec du chargement : " + url));
+      document.head.appendChild(script);
+    }
+    const debut = Date.now();
+    const intervalle = setInterval(() => {
+      if (verifierPresence()) { clearInterval(intervalle); resolve(); }
+      else if (Date.now() - debut > (timeoutMs || 8000)) { clearInterval(intervalle); reject(new Error("Délai dépassé pour : " + url)); }
+    }, 150);
+  });
+}
+
 function nettoyerTexte(valeur, longueurMax) {
   if (typeof valeur !== "string") return "";
   const sansControle = valeur.replace(/[\u0000-\u001F\u007F]/g, "");
@@ -1215,13 +1243,26 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       let latitude, longitude;
       const CapGeo = window.Capacitor?.Plugins?.Geolocation;
       if (CapGeo) {
-        // Plugin natif Capacitor — gère lui-même la demande de permission Android
-        const pos = await CapGeo.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+        // Vérifie/demande explicitement la permission avant de localiser —
+        // certaines versions du plugin ne redemandent pas automatiquement.
+        try {
+          const etat = await CapGeo.checkPermissions();
+          if (etat.location !== "granted" && etat.coarseLocation !== "granted") {
+            const demande = await CapGeo.requestPermissions();
+            if (demande.location !== "granted" && demande.coarseLocation !== "granted") {
+              setGeoStatus("Localisation refusée dans les paramètres du téléphone. Autorise-la manuellement dans Paramètres → Applications → Mon carnet de bord → Autorisations, ou saisis le lieu à la main.");
+              setTimeout(() => setGeoStatus(""), 6000);
+              return;
+            }
+          }
+        } catch (permErr) { /* certaines versions du plugin n'exposent pas checkPermissions — on tente quand même getCurrentPosition */ }
+
+        const pos = await CapGeo.getCurrentPosition({ enableHighAccuracy: true, timeout: 15000 });
         latitude = pos.coords.latitude; longitude = pos.coords.longitude;
       } else if (navigator.geolocation) {
         // Repli navigateur (utile en mode web/PWA hors app native)
         const pos = await new Promise((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000 })
         );
         latitude = pos.coords.latitude; longitude = pos.coords.longitude;
       } else {
@@ -1240,7 +1281,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       setGeoStatus("Position enregistrée ✓");
       setTimeout(() => setGeoStatus(""), 2500);
     } catch (err) {
-      setGeoStatus("Position refusée ou indisponible. Vous pouvez saisir le lieu manuellement.");
+      console.error("Erreur géolocalisation:", err?.code, err?.message, err);
+      setGeoStatus(`Position refusée ou indisponible (${err?.message || "erreur inconnue"}). Vérifie que la localisation est activée sur le téléphone, ou saisis le lieu manuellement.`);
       setTimeout(() => setGeoStatus(""), 3500);
     }
   };
@@ -1312,8 +1354,17 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   };
 
   const genererRapportPDF = async () => {
+    setSaveStatus("Préparation du rapport…");
+    try {
+      await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js", () => !!window.jspdf?.jsPDF);
+      await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js", () => !!window.jspdf?.jsPDF?.API?.autoTable);
+    } catch (err) {
+      setSaveStatus("Génération PDF impossible : vérifie ta connexion internet et réessaie");
+      setTimeout(() => setSaveStatus(""), 4000);
+      return;
+    }
     const jsPDFLib = window.jspdf?.jsPDF;
-    if (!jsPDFLib) { setSaveStatus("Génération PDF indisponible (pas de réseau au premier chargement)"); setTimeout(() => setSaveStatus(""), 3000); return; }
+    if (!jsPDFLib) { setSaveStatus("Génération PDF indisponible"); setTimeout(() => setSaveStatus(""), 3000); return; }
 
     const label = { jour: "Jour", semaine: "Semaine", mois: "Mois", annee: "Année" }[periodType];
     const doc = new jsPDFLib({ unit: "mm", format: "a4" });
@@ -1813,10 +1864,10 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="flex gap-2 flex-wrap">
-              <StatCard icon={Clock} label="Amplitude" value={fmtHM(calc.amplitudeMin)} sub={calc.enCoursService ? "● en cours" : undefined} accent="text-amber-400" />
-              <StatCard icon={Coffee} label="Pause" value={fmtHM(calc.pauseMin)} sub={calc.pauseEnCours ? "● en cours" : undefined} accent="text-sky-400" />
-              <StatCard icon={Clock} label="Temps service" value={fmtHM(calc.serviceMin)} sub={calc.enCoursService ? "● en cours" : "pour la paie"} accent="text-emerald-400" />
-              <StatCard icon={Moon} label="Nuit (21h-6h)" value={fmtHM(calc.nightWorkedMin)} sub="majoré 20%" accent="text-indigo-400" />
+              <StatCard icon={Clock} label={t("pointage.amplitude")} value={fmtHM(calc.amplitudeMin)} sub={calc.enCoursService ? `● ${t("pointage.enCours")}` : undefined} accent="text-amber-400" />
+              <StatCard icon={Coffee} label={t("pointage.pause")} value={fmtHM(calc.pauseMin)} sub={calc.pauseEnCours ? `● ${t("pointage.enCours")}` : undefined} accent="text-sky-400" />
+              <StatCard icon={Clock} label={t("pointage.tempsService")} value={fmtHM(calc.serviceMin)} sub={calc.enCoursService ? `● ${t("pointage.enCours")}` : t("pointage.pourLaPaie")} accent="text-emerald-400" />
+              <StatCard icon={Moon} label={t("pointage.nuit")} value={fmtHM(calc.nightWorkedMin)} sub={t("pointage.majore")} accent="text-indigo-400" />
               {coupure && (
                 <StatCard icon={Moon} label={coupure.estWeekend ? "Coupure (week-end)" : "Coupure de repos"}
                   value={fmtHM(coupure.dureeMin)}
@@ -1920,21 +1971,21 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
             {/* Casse-croûte */}
             <FraisLigne
-              titre="Casse-croûte"
+              titre={t("frais.casseCroute")}
               montant={currentEntry.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute}
               value={currentEntry.casseCroute}
               onChange={(v) => updateEntry({ casseCroute: v })}
             />
             {/* Repas midi */}
             <FraisLigne
-              titre="Repas midi"
+              titre={t("frais.repasMidi")}
               montant={currentEntry.repasMidi.etranger ? rates.repasEtr : rates.repas}
               value={currentEntry.repasMidi}
               onChange={(v) => updateEntry({ repasMidi: v })}
             />
             {/* Repas soir */}
             <FraisLigne
-              titre="Repas soir"
+              titre={t("frais.repasSoir")}
               montant={currentEntry.repasSoir.etranger ? rates.repasEtr : rates.repas}
               value={currentEntry.repasSoir}
               onChange={(v) => updateEntry({ repasSoir: v })}
@@ -1943,7 +1994,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             {/* Découche */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm">Découche</span>
+                <span className="font-semibold text-sm">{t("frais.decouche")}</span>
                 <ToggleActif value={currentEntry.decouche.actif} onChange={(v) => updateEntry({ decouche: { ...currentEntry.decouche, actif: v } })} />
               </div>
               {currentEntry.decouche.actif && (
@@ -1973,7 +2024,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             {/* Week-end */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm">Week-end</span>
+                <span className="font-semibold text-sm">{t("frais.weekend")}</span>
                 <ToggleActif value={currentEntry.weekend.actif} onChange={(v) => updateEntry({ weekend: { ...currentEntry.weekend, actif: v } })} />
               </div>
               {currentEntry.weekend.actif && (
@@ -2038,7 +2089,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             )}
 
             <div className="bg-amber-500 text-slate-950 rounded-xl p-3 font-bold text-center">
-              Total frais du jour : {calc.frais.toFixed(2)} €
+              {t("frais.totalJour")} : {calc.frais.toFixed(2)} €
             </div>
           </div>
         )}
