@@ -19,7 +19,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
 
 <style>
   html, body, #root { height: 100%; background:#020617; }
@@ -52,13 +55,13 @@ const FIREBASE_CONFIG = {
 const ADMIN_EMAILS = ["madi.62.fm@gmail.com"];
 
 // Durée de l'essai gratuit automatique pour tout nouveau compte (en jours)
-const DUREE_ESSAI_JOURS = 31;
+const DUREE_ESSAI_JOURS_DEFAUT = 30; // valeur de repli si aucun réglage admin n'est trouvé
 
 // Lien de paiement (Stripe Payment Link, ou équivalent) affiché une fois l'essai terminé
 const LIEN_PAIEMENT = "https://buy.stripe.com/REMPLACE_MOI";
 
 // Adresse de la version web (HTML) de l'application, à remplacer une fois hébergée (Netlify, GitHub Pages...)
-const LIEN_WEB_APP = "https://REMPLACE-PAR-TON-LIEN-NETLIFY.netlify.app";
+const LIEN_WEB_APP = "https://yoda515.github.io/Mon-carnet-de-bord/";
 
 // Version actuelle de l'application (à incrémenter à chaque nouvelle compilation envoyée)
 const APP_VERSION = "1.0.0";
@@ -66,12 +69,28 @@ const APP_VERSION = "1.0.0";
 // Lien vers le dernier APK à télécharger (Google Drive, GitHub Releases, ton hébergement...)
 const LIEN_TELECHARGEMENT_APK = "https://REMPLACE-PAR-TON-LIEN-DE-TELECHARGEMENT-APK";
 
+/* =========================================================================
+   GOOGLE ADMOB — publicité native (en plus de la bannière personnalisée)
+   ========================================================================= */
+const ADMOB_APP_ID = "ca-app-pub-5594672619293459~6597764135";
+const ADMOB_BANNIERE_ID = "ca-app-pub-5594672619293459/8270058591";     // bannière permanente
+const ADMOB_INTERSTITIEL_DEMARRAGE_ID = "ca-app-pub-5594672619293459/8162247387"; // à l'ouverture de l'app
+const ADMOB_INTERSTITIEL_PAIE_ID = "ca-app-pub-5594672619293459/5675684848";      // onglet Paie
+const ADMOB_INTERSTITIEL_RAPPORTS_ID = "ca-app-pub-5594672619293459/5643895252"; // onglets Frais et Rapports
+
+/* =========================================================================
+   GOOGLE PLAY BILLING — abonnements réels, vérifiés côté serveur
+   ========================================================================= */
+const PRODUIT_STANDARD_ID = "abonnement_standard_1_99"; // 1,99€/mois
+const PRODUIT_PREMIUM_ID = "abonnement_premium_3_99";   // 3,99€/mois
+
 const firebaseConfigueValide = FIREBASE_CONFIG.apiKey !== "REMPLACE_MOI";
-let firebaseApp = null, auth = null, db = null;
+let firebaseApp = null, auth = null, db = null, functionsFirebase = null;
 if (firebaseConfigueValide) {
   firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
   auth = firebase.auth();
   db = firebase.firestore();
+  functionsFirebase = firebase.functions();
 }
 
 
@@ -147,6 +166,8 @@ const DEFAULT_RATES = {
   weekend: 0,
   weekendEtr: 0,
   coefNet: 0.78,
+  tauxImposition: 11,      // % — appliqué sur le brut total (base horaire + frais + primes)
+  mutuelleCotisation: 0,   // € par mois — déduit après l'impôt
   seuil1: 152, // fin taux normal
   seuil2: 169, // fin équivalence 25%
   seuil3: 186, // fin HS 25%
@@ -169,6 +190,11 @@ const DEFAULT_RATES = {
   routierHeureJourFin: "21:00",
   routierAmplitudeJour: 15,
   routierAmplitudeNuit: 13,
+  routierServiceJour: 12,   // plafond de temps de service (départ en journée) — jamais dépassable
+  routierServiceNuit: 10,   // plafond de temps de service (départ de nuit) — jamais dépassable
+  // Mode VRP / Commercial — frais spécifiques (péage, parking, hôtel)
+  modeVRPActif: false,
+  vrpAlerteSeuilMinutes: 15, // seuil d'alerte générique sur le temps de service (indépendant du mode routier)
   alerteMinutes: 15,
 };
 
@@ -176,7 +202,170 @@ const DEFAULT_THEME = {
   accent: "#f59e0b",
   fond: "#020617",
   texte: "#f1f5f9",
+  carte: "#1e293b",
+  tailleTexte: "normal", // "petit" | "normal" | "grand"
 };
+const TAILLES_TEXTE = { petit: "14px", normal: "16px", grand: "19px" };
+
+/* =========================================================================
+   TRADUCTIONS — sélecteur de langue (écran de connexion + navigation)
+   Couverture progressive : les textes principaux sont traduits ci-dessous ;
+   le reste de l'application (formulaires détaillés) suit en français par
+   défaut et sera étendu langue par langue dans les prochaines mises à jour.
+   ========================================================================= */
+const LANGUES_DISPONIBLES = [
+  { code: "fr", label: "🇫🇷 Français" },
+  { code: "en", label: "🇬🇧 English" },
+  { code: "en-US", label: "🇺🇸 English (US)" },
+];
+// Autres langues déjà préparées (partiellement traduites) dans TRADUCTIONS ci-dessous,
+// masquées du sélecteur pour l'instant — retire ce commentaire et rallonge la liste
+// ci-dessus quand leur traduction du contenu détaillé sera complétée.
+
+const TRADUCTIONS = {
+  fr: {
+    appTitre: "MON CARNET DE BORD", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Connexion", creerCompte: "Créer un compte", email: "E-mail", motDePasse: "Mot de passe (6 caractères min.)",
+    seConnecter: "Se connecter", creerMonCompte: "Créer mon compte", motDePasseOublie: "Mot de passe oublié ?", patiente: "Patiente…",
+    essaiGratuit: "Un nouveau compte bénéficie de {jours} jours d'essai gratuit automatique.", langue: "Langue",
+    tabs: { pointage: "Pointage", frais: "Frais", conformite: "Conformité", planning: "Planning", banque: "Banque", garage: "Garage", carburant: "Carburant", rapports: "Rapports", paie: "Paie", reglages: "Réglages", admin: "Admin" },
+    sections: {
+      tauxHoraire: "Taux horaire & paie", paliers: "Paliers du contrat (heures)", majorations: "Majorations activables",
+      modeRoutier: "Mode Routier — fin impérative & alertes", modeVRP: "Mode VRP / Commercial",
+      amplitudeRepos: "Amplitude & repos réglementaires", apparence: "Apparence", banniere: "Bannière publicitaire",
+      banniereAdmin: "Bannière publicitaire (accès administrateur)", fraisRoute: "Frais de route (France / Étranger)",
+      sauvegarde: "Sauvegarde des données", accesWeb: "Accès Web", misesAJour: "Mises à jour", monAbonnement: "Mon abonnement",
+      tracteur: "Tracteur", remorque: "Remorque", soldeDepart: "Solde de départ",
+    },
+    boutons: {
+      ajouter: "Ajouter", supprimer: "Supprimer", modifier: "Modifier", enregistrer: "Enregistrer", annuler: "Annuler",
+      fermer: "Fermer", valider: "Valider", envoyer: "Envoyer", telecharger: "Télécharger", partager: "Partager",
+    },
+  },
+  en: {
+    appTitre: "MY LOGBOOK", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Log in", creerCompte: "Create account", email: "Email", motDePasse: "Password (6 characters min.)",
+    seConnecter: "Log in", creerMonCompte: "Create my account", motDePasseOublie: "Forgot password?", patiente: "Please wait…",
+    essaiGratuit: "A new account gets {jours} days of free trial automatically.", langue: "Language",
+    tabs: { pointage: "Clock-in", frais: "Expenses", conformite: "Compliance", planning: "Schedule", banque: "Hours bank", garage: "Garage", carburant: "Fuel", rapports: "Reports", paie: "Payroll", reglages: "Settings", admin: "Admin" },
+    sections: {
+      tauxHoraire: "Hourly rate & payroll", paliers: "Contract tiers (hours)", majorations: "Enabled overtime rates",
+      modeRoutier: "Driver Mode — mandatory end time & alerts", modeVRP: "Sales Rep / Commercial Mode",
+      amplitudeRepos: "Duty span & mandatory rest", apparence: "Appearance", banniere: "Ad banner",
+      banniereAdmin: "Ad banner (admin access)", fraisRoute: "Travel expenses (France / Abroad)",
+      sauvegarde: "Data backup", accesWeb: "Web access", misesAJour: "Updates", monAbonnement: "My subscription",
+      tracteur: "Tractor", remorque: "Trailer", soldeDepart: "Starting balance",
+    },
+    boutons: {
+      ajouter: "Add", supprimer: "Delete", modifier: "Edit", enregistrer: "Save", annuler: "Cancel",
+      fermer: "Close", valider: "Confirm", envoyer: "Send", telecharger: "Download", partager: "Share",
+    },
+  },
+  "en-US": {
+    appTitre: "MY LOGBOOK", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Log in", creerCompte: "Create account", email: "Email", motDePasse: "Password (6 characters min.)",
+    seConnecter: "Log in", creerMonCompte: "Create my account", motDePasseOublie: "Forgot password?", patiente: "Please wait…",
+    essaiGratuit: "A new account gets {jours} days of free trial automatically.", langue: "Language",
+    tabs: { pointage: "Clock-in", frais: "Expenses", conformite: "Compliance", planning: "Schedule", banque: "Hours bank", garage: "Garage", carburant: "Fuel", rapports: "Reports", paie: "Payroll", reglages: "Settings", admin: "Admin" },
+    sections: {
+      tauxHoraire: "Hourly rate & payroll", paliers: "Contract tiers (hours)", majorations: "Enabled overtime rates",
+      modeRoutier: "Driver Mode — mandatory end time & alerts", modeVRP: "Sales Rep / Commercial Mode",
+      amplitudeRepos: "Duty span & mandatory rest", apparence: "Appearance", banniere: "Ad banner",
+      banniereAdmin: "Ad banner (admin access)", fraisRoute: "Travel expenses (France / Abroad)",
+      sauvegarde: "Data backup", accesWeb: "Web access", misesAJour: "Updates", monAbonnement: "My subscription",
+      tracteur: "Tractor", remorque: "Trailer", soldeDepart: "Starting balance",
+    },
+    boutons: {
+      ajouter: "Add", supprimer: "Delete", modifier: "Edit", enregistrer: "Save", annuler: "Cancel",
+      fermer: "Close", valider: "Confirm", envoyer: "Send", telecharger: "Download", partager: "Share",
+    },
+  },
+  de: {
+    appTitre: "MEIN FAHRTENBUCH", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Anmelden", creerCompte: "Konto erstellen", email: "E-Mail", motDePasse: "Passwort (mind. 6 Zeichen)",
+    seConnecter: "Anmelden", creerMonCompte: "Konto erstellen", motDePasseOublie: "Passwort vergessen?", patiente: "Bitte warten…",
+    essaiGratuit: "Ein neues Konto erhält automatisch {jours} Tage kostenlose Testphase.", langue: "Sprache",
+    tabs: { pointage: "Zeiterfassung", frais: "Spesen", conformite: "Konformität", planning: "Planung", banque: "Stundenkonto", garage: "Garage", carburant: "Kraftstoff", rapports: "Berichte", paie: "Lohn", reglages: "Einstellungen", admin: "Admin" },
+  },
+  es: {
+    appTitre: "MI CUADERNO DE BITÁCORA", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Iniciar sesión", creerCompte: "Crear cuenta", email: "Correo electrónico", motDePasse: "Contraseña (mín. 6 caracteres)",
+    seConnecter: "Iniciar sesión", creerMonCompte: "Crear mi cuenta", motDePasseOublie: "¿Olvidaste tu contraseña?", patiente: "Espera…",
+    essaiGratuit: "Una cuenta nueva recibe {jours} días de prueba gratuita automáticamente.", langue: "Idioma",
+    tabs: { pointage: "Fichaje", frais: "Gastos", conformite: "Cumplimiento", planning: "Planificación", banque: "Banco de horas", garage: "Garaje", carburant: "Combustible", rapports: "Informes", paie: "Nómina", reglages: "Ajustes", admin: "Admin" },
+  },
+  it: {
+    appTitre: "IL MIO DIARIO DI BORDO", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Accedi", creerCompte: "Crea account", email: "E-mail", motDePasse: "Password (min. 6 caratteri)",
+    seConnecter: "Accedi", creerMonCompte: "Crea il mio account", motDePasseOublie: "Password dimenticata?", patiente: "Attendere…",
+    essaiGratuit: "Un nuovo account riceve automaticamente {jours} giorni di prova gratuita.", langue: "Lingua",
+    tabs: { pointage: "Timbratura", frais: "Spese", conformite: "Conformità", planning: "Pianificazione", banque: "Banca ore", garage: "Garage", carburant: "Carburante", rapports: "Rapporti", paie: "Busta paga", reglages: "Impostazioni", admin: "Admin" },
+  },
+  nl: {
+    appTitre: "MIJN LOGBOEK", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Inloggen", creerCompte: "Account aanmaken", email: "E-mail", motDePasse: "Wachtwoord (min. 6 tekens)",
+    seConnecter: "Inloggen", creerMonCompte: "Mijn account aanmaken", motDePasseOublie: "Wachtwoord vergeten?", patiente: "Even geduld…",
+    essaiGratuit: "Een nieuw account krijgt automatisch {jours} dagen gratis proefperiode.", langue: "Taal",
+    tabs: { pointage: "Prikklok", frais: "Onkosten", conformite: "Naleving", planning: "Planning", banque: "Urenbank", garage: "Garage", carburant: "Brandstof", rapports: "Rapporten", paie: "Loon", reglages: "Instellingen", admin: "Admin" },
+  },
+  pt: {
+    appTitre: "O MEU DIÁRIO DE BORDO", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Iniciar sessão", creerCompte: "Criar conta", email: "E-mail", motDePasse: "Palavra-passe (mín. 6 caracteres)",
+    seConnecter: "Iniciar sessão", creerMonCompte: "Criar a minha conta", motDePasseOublie: "Esqueceu a palavra-passe?", patiente: "Aguarde…",
+    essaiGratuit: "Uma nova conta recebe automaticamente {jours} dias de teste gratuito.", langue: "Idioma",
+    tabs: { pointage: "Registo", frais: "Despesas", conformite: "Conformidade", planning: "Planeamento", banque: "Banco de horas", garage: "Garagem", carburant: "Combustível", rapports: "Relatórios", paie: "Salário", reglages: "Definições", admin: "Admin" },
+  },
+  el: {
+    appTitre: "ΤΟ ΗΜΕΡΟΛΟΓΙΟ ΜΟΥ", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Σύνδεση", creerCompte: "Δημιουργία λογαριασμού", email: "E-mail", motDePasse: "Κωδικός (τουλ. 6 χαρακτήρες)",
+    seConnecter: "Σύνδεση", creerMonCompte: "Δημιουργία λογαριασμού", motDePasseOublie: "Ξεχάσατε τον κωδικό;", patiente: "Παρακαλώ περιμένετε…",
+    essaiGratuit: "Ένας νέος λογαριασμός λαμβάνει αυτόματα {jours} ημέρες δωρεάν δοκιμής.", langue: "Γλώσσα",
+    tabs: { pointage: "Ωράριο", frais: "Έξοδα", conformite: "Συμμόρφωση", planning: "Προγραμματισμός", banque: "Τράπεζα ωρών", garage: "Γκαράζ", carburant: "Καύσιμο", rapports: "Αναφορές", paie: "Μισθός", reglages: "Ρυθμίσεις", admin: "Διαχειριστής" },
+  },
+  tr: {
+    appTitre: "SEYİR DEFTERİM", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Giriş yap", creerCompte: "Hesap oluştur", email: "E-posta", motDePasse: "Şifre (en az 6 karakter)",
+    seConnecter: "Giriş yap", creerMonCompte: "Hesabımı oluştur", motDePasseOublie: "Şifrenizi mi unuttunuz?", patiente: "Lütfen bekleyin…",
+    essaiGratuit: "Yeni bir hesap otomatik olarak {jours} gün ücretsiz deneme kazanır.", langue: "Dil",
+    tabs: { pointage: "Mesai", frais: "Masraflar", conformite: "Uyumluluk", planning: "Planlama", banque: "Saat bankası", garage: "Garaj", carburant: "Yakıt", rapports: "Raporlar", paie: "Maaş", reglages: "Ayarlar", admin: "Admin" },
+  },
+  fi: {
+    appTitre: "AJOPÄIVÄKIRJANI", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Kirjaudu", creerCompte: "Luo tili", email: "Sähköposti", motDePasse: "Salasana (väh. 6 merkkiä)",
+    seConnecter: "Kirjaudu", creerMonCompte: "Luo tilini", motDePasseOublie: "Unohditko salasanan?", patiente: "Odota…",
+    essaiGratuit: "Uusi tili saa automaattisesti {jours} päivän ilmaisen kokeilun.", langue: "Kieli",
+    tabs: { pointage: "Kellokortti", frais: "Kulut", conformite: "Vaatimustenmukaisuus", planning: "Suunnittelu", banque: "Tuntipankki", garage: "Autotalli", carburant: "Polttoaine", rapports: "Raportit", paie: "Palkka", reglages: "Asetukset", admin: "Admin" },
+  },
+  da: {
+    appTitre: "MIN KØREBOG", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Log ind", creerCompte: "Opret konto", email: "E-mail", motDePasse: "Adgangskode (min. 6 tegn)",
+    seConnecter: "Log ind", creerMonCompte: "Opret min konto", motDePasseOublie: "Glemt adgangskode?", patiente: "Vent venligst…",
+    essaiGratuit: "En ny konto får automatisk {jours} dages gratis prøveperiode.", langue: "Sprog",
+    tabs: { pointage: "Tidsregistrering", frais: "Udgifter", conformite: "Overensstemmelse", planning: "Planlægning", banque: "Timebank", garage: "Garage", carburant: "Brændstof", rapports: "Rapporter", paie: "Løn", reglages: "Indstillinger", admin: "Admin" },
+  },
+  sv: {
+    appTitre: "MIN KÖRJOURNAL", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Logga in", creerCompte: "Skapa konto", email: "E-post", motDePasse: "Lösenord (min. 6 tecken)",
+    seConnecter: "Logga in", creerMonCompte: "Skapa mitt konto", motDePasseOublie: "Glömt lösenordet?", patiente: "Vänta…",
+    essaiGratuit: "Ett nytt konto får automatiskt {jours} dagars gratis provperiod.", langue: "Språk",
+    tabs: { pointage: "Tidsstämpling", frais: "Utgifter", conformite: "Efterlevnad", planning: "Planering", banque: "Timbank", garage: "Garage", carburant: "Bränsle", rapports: "Rapporter", paie: "Lön", reglages: "Inställningar", admin: "Admin" },
+  },
+  pl: {
+    appTitre: "MÓJ DZIENNIK POKŁADOWY", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
+    connexion: "Zaloguj się", creerCompte: "Utwórz konto", email: "E-mail", motDePasse: "Hasło (min. 6 znaków)",
+    seConnecter: "Zaloguj się", creerMonCompte: "Utwórz moje konto", motDePasseOublie: "Zapomniałeś hasła?", patiente: "Proszę czekać…",
+    essaiGratuit: "Nowe konto automatycznie otrzymuje {jours} dni bezpłatnego okresu próbnego.", langue: "Język",
+    tabs: { pointage: "Rejestracja czasu", frais: "Wydatki", conformite: "Zgodność", planning: "Planowanie", banque: "Bank godzin", garage: "Garaż", carburant: "Paliwo", rapports: "Raporty", paie: "Wynagrodzenie", reglages: "Ustawienia", admin: "Admin" },
+  },
+};
+
+function traduire(langue, cle, params) {
+  const dict = TRADUCTIONS[langue] || TRADUCTIONS.fr;
+  let texte = cle.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), dict);
+  if (texte === undefined) texte = cle.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), TRADUCTIONS.fr) || cle;
+  if (params) Object.keys(params).forEach((k) => { texte = texte.replace(`{${k}}`, params[k]); });
+  return texte;
+}
 
 const DEFAULT_STATUTS = [
   { id: "poste", label: "En poste", couleur: "#059669" },
@@ -220,10 +409,37 @@ const emptyEntry = (date) => ({
   repasSoir: { actif: false, etranger: false },
   decouche: { actif: false, etranger: false, note: 0, lat: null, lon: null, lieu: "", adresse: "" },
   weekend: { actif: false, etranger: false, montant: "", lat: null, lon: null, lieu: "", adresse: "" },
+  peage: "",
+  parking: "",
+  hotel: "",
   commentaire: "",
 });
 
 /* ---------- Utilitaires de temps ---------- */
+
+// Nettoie systématiquement un champ texte libre saisi par l'utilisateur avant
+// stockage/diffusion : retire les caractères de contrôle invisibles, les
+// espaces superflus, et limite la longueur pour éviter tout abus (notamment
+// pour les champs diffusés à tous les utilisateurs, comme la bannière pub).
+function nettoyerTexte(valeur, longueurMax) {
+  if (typeof valeur !== "string") return "";
+  const sansControle = valeur.replace(/[\u0000-\u001F\u007F]/g, "");
+  const reduit = sansControle.trim().replace(/\s{2,}/g, " ");
+  return longueurMax ? reduit.slice(0, longueurMax) : reduit;
+}
+
+// Valide qu'une URL saisie par l'utilisateur est bien une adresse web (http/https)
+// avant de l'accepter — sinon renvoie une chaîne vide (le champ est "effacé").
+function validerURL(valeur) {
+  const v = nettoyerTexte(valeur, 500);
+  if (!v) return "";
+  try {
+    const url = new URL(v);
+    return (url.protocol === "http:" || url.protocol === "https:") ? v : "";
+  } catch (e) {
+    return "";
+  }
+}
 
 function nowLocalISO() {
   const d = new Date();
@@ -293,23 +509,31 @@ function computeSegments(entry, liveNow) {
   return segments;
 }
 
-// Calcule la fin impérative de l'amplitude et le temps de service restant,
-// selon l'heure de début : départ en journée (05h-21h par défaut) → amplitude 15h,
-// départ de nuit (21h-05h) → amplitude 13h. Seuils et durées modifiables en Réglages.
-function computeModeRoutier(entry, rates, liveNow, serviceMin) {
+// Calcule la fin impérative de l'amplitude ET du temps de service, selon l'heure de
+// début : départ en journée (05h-21h par défaut) → amplitude 15h / service max 12h,
+// départ de nuit (21h-05h) → amplitude 13h / service max 10h. Tout modifiable en Réglages.
+// - Fin d'amplitude = début + amplitude max (15h/13h)
+// - Fin de service (affichée) = fin d'amplitude - pauses réellement prises
+// - Temps de service restant = calculé sur le plafond dédié (12h/10h), jamais dépassable
+function computeModeRoutier(entry, rates, liveNow, serviceMin, pauseMin) {
   if (!rates.activerModeRoutier || !entry.debutService) return null;
 
   const heureDebut = entry.debutService.slice(11, 16);
   const enJournee = heureDebut >= rates.routierHeureJourDebut && heureDebut < rates.routierHeureJourFin;
   const amplitudeMaxH = enJournee ? rates.routierAmplitudeJour : rates.routierAmplitudeNuit;
+  const serviceMaxH = enJournee ? rates.routierServiceJour : rates.routierServiceNuit;
 
   const debutDate = new Date(entry.debutService);
   const finImperativeDate = new Date(debutDate.getTime() + amplitudeMaxH * 3600000);
   const finImperativeHHMM = String(finImperativeDate.getHours()).padStart(2, "0") + ":" + String(finImperativeDate.getMinutes()).padStart(2, "0");
 
+  // Fin de service = fin d'amplitude moins les pauses réellement prises jusqu'ici
+  const finServiceDate = new Date(finImperativeDate.getTime() - (pauseMin || 0) * 60000);
+  const finServiceHHMM = String(finServiceDate.getHours()).padStart(2, "0") + ":" + String(finServiceDate.getMinutes()).padStart(2, "0");
+
   const now = new Date(liveNow);
   const tempsRestantAmplitudeMin = (finImperativeDate - now) / 60000;
-  const tempsServiceRestantMin = amplitudeMaxH * 60 - serviceMin;
+  const tempsServiceRestantMin = serviceMaxH * 60 - serviceMin; // basé sur le plafond dédié, pas l'amplitude
 
   const niveau = (minutesRestantes) => {
     if (minutesRestantes <= 5) return "critique";
@@ -318,7 +542,7 @@ function computeModeRoutier(entry, rates, liveNow, serviceMin) {
   };
 
   return {
-    enJournee, amplitudeMaxH, finImperativeHHMM, tempsRestantAmplitudeMin, tempsServiceRestantMin,
+    enJournee, amplitudeMaxH, serviceMaxH, finImperativeHHMM, finServiceHHMM, tempsRestantAmplitudeMin, tempsServiceRestantMin,
     niveauAmplitude: niveau(tempsRestantAmplitudeMin),
     niveauService: niveau(tempsServiceRestantMin),
   };
@@ -392,6 +616,9 @@ function computeEntry(entry, rates, liveNow) {
   if (entry.repasSoir.actif) frais += entry.repasSoir.etranger ? rates.repasEtr : rates.repas;
   if (entry.decouche.actif) frais += entry.decouche.etranger ? rates.decoucheEtr : rates.decouche;
   if (entry.weekend.actif) frais += Number(entry.weekend.montant) || 0;
+  frais += Number(entry.peage) || 0;
+  frais += Number(entry.parking) || 0;
+  frais += Number(entry.hotel) || 0;
 
   return {
     enCoursService,
@@ -409,7 +636,7 @@ function computeEntry(entry, rates, liveNow) {
 
 /* ---------- Regroupement mensuel & paie ---------- */
 
-function computeMonthPay(entriesForMonth, rates, liveNow) {
+function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
   let serviceMin = 0, nightMin = 0, frais = 0;
   entriesForMonth.forEach((e) => {
     const c = computeEntry(e, rates, liveNow);
@@ -442,17 +669,25 @@ function computeMonthPay(entriesForMonth, rates, liveNow) {
   const payHS100 = b4 * rates.tauxHoraire * tauxHS100;
   const payNight = nightH * rates.tauxHoraire * 0.20; // majoration de nuit, en plus
 
-  const salaireBrut = payNormal + payEquiv + payHS25 + payHS50 + payHS100 + payNight;
-  const salaireNet = salaireBrut * rates.coefNet;
-  const netTotal = salaireNet + frais;
-  const brutIndicatif = salaireBrut + frais;
+  const salaireBaseHoraire = payNormal + payEquiv + payHS25 + payHS50 + payHS100 + payNight;
+  const sommePrimes = (primesDuMois || []).reduce((s, p) => s + (Number(p.montant) || 0), 0);
+
+  // Brut total = base horaire + frais de route + primes (tout imposable, selon la demande)
+  const salaireBrut = salaireBaseHoraire + frais + sommePrimes;
+
+  const tauxImposition = Number(rates.tauxImposition) || 0; // en %
+  const mutuelle = Number(rates.mutuelleCotisation) || 0;   // en €/mois
+  const salaireNet = salaireBrut * (1 - tauxImposition / 100) - mutuelle;
+  const netTotal = salaireNet; // les frais sont déjà inclus dans le brut ci-dessus
+  const brutIndicatif = salaireBrut;
 
   return {
-    H, nightH, frais,
+    H, nightH, frais, sommePrimes,
     b0, b1, b2, b3, b4, bBanque,
     tauxHS25, tauxHS50, tauxHS100,
     payNormal, payEquiv, payHS25, payHS50, payHS100, payNight,
-    salaireBrut, salaireNet, netTotal, brutIndicatif,
+    salaireBaseHoraire, salaireBrut, salaireNet, netTotal, brutIndicatif,
+    tauxImposition, mutuelle,
   };
 }
 
@@ -606,8 +841,9 @@ function StatCard({ icon: Icon, label, value, sub, accent }) {
    APPLICATION PRINCIPALE
    ========================================================================= */
 
-function MonCarnetDeBord({ user, isAdmin, onLogout }) {
+function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   const [tab, setTab] = useState("pointage");
+  const [interstitielsMontres, setInterstitielsMontres] = useState({ paie: false, rapports: false });
   const [entries, setEntries] = useState([]);
   const [rates, setRates] = useState(DEFAULT_RATES);
   const [selectedDate, setSelectedDate] = useState(todayISODate());
@@ -621,6 +857,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
   const [liveTick, setLiveTick] = useState(0);
   const [semaineConformite, setSemaineConformite] = useState(todayISODate());
   const [banque, setBanque] = useState({ soldeDepart: 0, tauxDepart: 1.5, mouvements: [] });
+  const [primes, setPrimes] = useState({}); // { "2026-07": [{id, label, montant}], ... }
   const [planning, setPlanning] = useState({});
   const [statuts, setStatuts] = useState(DEFAULT_STATUTS);
   const [garage, setGarage] = useState(DEFAULT_GARAGE);
@@ -631,6 +868,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
   const [publicites, setPublicites] = useState(DEFAULT_PUBLICITES);
   const [pubIndex, setPubIndex] = useState(0);
   const [sansPub, setSansPub] = useState(false);
+  const [niveauAbonnement, setNiveauAbonnement] = useState("gratuit"); // "gratuit" | "standard" | "premium"
   const [versionDistante, setVersionDistante] = useState({ derniereVersion: APP_VERSION, lien: LIEN_TELECHARGEMENT_APK });
   const [nouvelleVersionForm, setNouvelleVersionForm] = useState({ derniereVersion: "", lien: "" });
 
@@ -678,16 +916,74 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
     })();
   }, []);
 
-  // Vérifie si l'utilisateur courant est marqué "sans pub" par l'administrateur
+  // Vérifie le statut publicité / niveau d'abonnement de l'utilisateur courant
   useEffect(() => {
     (async () => {
       if (!user || !db) return;
       try {
         const snap = await db.collection("users").doc(user.uid).get();
-        if (snap.exists) setSansPub(!!snap.data().sansPub);
+        if (snap.exists) {
+          setSansPub(!!snap.data().sansPub);
+          setNiveauAbonnement(snap.data().niveauAbonnement || "gratuit");
+        }
       } catch (err) { /* ignore */ }
     })();
   }, [user]);
+
+  // Sans pub effectif : soit marqué directement, soit via le niveau d'abonnement Premium (3.99€)
+  const sansPubEffectif = sansPub || niveauAbonnement === "premium";
+
+  const [achatEnCours, setAchatEnCours] = useState(false);
+  const [messageAchat, setMessageAchat] = useState("");
+
+  // Initialise le magasin d'achats intégrés (Google Play Billing) et écoute les achats approuvés
+  useEffect(() => {
+    const store = window.CdvPurchase?.store;
+    if (!store || !user) return;
+    try {
+      const { ProductType, Platform } = window.CdvPurchase;
+      store.register([
+        { id: PRODUIT_STANDARD_ID, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY },
+        { id: PRODUIT_PREMIUM_ID, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY },
+      ]);
+      store.when().approved(async (transaction) => {
+        try {
+          const purchaseToken = transaction.nativePurchase?.purchaseToken || transaction.purchaseId;
+          const productId = transaction.products?.[0]?.id;
+          if (functionsFirebase && purchaseToken && productId) {
+            setMessageAchat("Vérification de l'achat en cours…");
+            const verifier = functionsFirebase.httpsCallable("verifierAbonnementGooglePlay");
+            const res = await verifier({ productId, purchaseToken });
+            if (res.data?.success) {
+              setNiveauAbonnement(res.data.niveau);
+              setMessageAchat("Abonnement activé ✓");
+              await transaction.finish();
+            }
+          }
+        } catch (err) {
+          setMessageAchat("Échec de la vérification de l'achat auprès du serveur.");
+        }
+        setAchatEnCours(false);
+        setTimeout(() => setMessageAchat(""), 4000);
+      });
+      store.initialize([Platform.GOOGLE_PLAY]);
+    } catch (err) { /* Billing non disponible (ex: aperçu web) — ignoré silencieusement */ }
+  }, [user]);
+
+  const acheterAbonnement = (productId) => {
+    const store = window.CdvPurchase?.store;
+    if (!store) { setMessageAchat("Achat disponible uniquement depuis l'application installée."); setTimeout(() => setMessageAchat(""), 3000); return; }
+    setAchatEnCours(true);
+    const produit = store.get(productId);
+    if (produit && produit.getOffer()) {
+      produit.getOffer().order();
+    } else {
+      setAchatEnCours(false);
+      setMessageAchat("Offre indisponible pour le moment.");
+      setTimeout(() => setMessageAchat(""), 3000);
+    }
+  };
+
 
   const enregistrerPublicitesPartagees = async () => {
     try {
@@ -714,6 +1010,52 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
   /* ---------- Espace de stockage propre à l'utilisateur connecté ---------- */
   const ns = (key) => `carnet-${user?.uid || "local"}-${key}`;
 
+  /* ---------- Google AdMob (bannière permanente + interstitiels) — selon niveau d'abonnement :
+     Gratuit  : bannière + vidéo (interstitiel) à l'ouverture des onglets Frais, Rapports et Paie
+     1,99 €   : bannière + vidéo (interstitiel) uniquement à l'ouverture de l'onglet Paie
+     3,99 €   : aucune publicité ---------- */
+  useEffect(() => {
+    const AdMobPlugin = window.Capacitor?.Plugins?.AdMob;
+    if (!AdMobPlugin || sansPubEffectif) return; // Premium ou "sans pub" : on n'initialise même pas AdMob
+    (async () => {
+      try {
+        await AdMobPlugin.initialize({ initializeForTesting: false });
+        await AdMobPlugin.showBanner({
+          adId: ADMOB_BANNIERE_ID,
+          adSize: "ADAPTIVE_BANNER",
+          position: "BOTTOM_CENTER",
+          margin: 0,
+        });
+        await AdMobPlugin.prepareInterstitial({ adId: ADMOB_INTERSTITIEL_DEMARRAGE_ID });
+        await AdMobPlugin.showInterstitial();
+      } catch (err) { /* AdMob indisponible ou pub non chargée — on ignore, l'app continue normalement */ }
+    })();
+  }, [sansPubEffectif]);
+
+  const afficherInterstitiel = async (adId) => {
+    if (sansPubEffectif) return;
+    const AdMobPlugin = window.Capacitor?.Plugins?.AdMob;
+    if (!AdMobPlugin) return;
+    try {
+      await AdMobPlugin.prepareInterstitial({ adId });
+      await AdMobPlugin.showInterstitial();
+    } catch (err) { /* pub non disponible — on ignore */ }
+  };
+
+  const changerOnglet = (id) => {
+    setTab(id);
+    if (sansPubEffectif) return; // Premium (3.99€) : jamais d'interstitiel
+    if (id === "paie" && !interstitielsMontres.paie) {
+      setInterstitielsMontres((p) => ({ ...p, paie: true }));
+      afficherInterstitiel(ADMOB_INTERSTITIEL_PAIE_ID);
+    }
+    // L'interstitiel Frais/Rapports n'est montré qu'au niveau Gratuit — pas au niveau 1,99€
+    if (niveauAbonnement === "gratuit" && (id === "rapports" || id === "frais") && !interstitielsMontres.rapports) {
+      setInterstitielsMontres((p) => ({ ...p, rapports: true }));
+      afficherInterstitiel(ADMOB_INTERSTITIEL_RAPPORTS_ID);
+    }
+  };
+
   /* ---------- Chargement initial (cloud en priorité si connecté, sinon local) ---------- */
   useEffect(() => {
     (async () => {
@@ -733,6 +1075,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
       setEntries(lire("entries", []));
       setRates({ ...DEFAULT_RATES, ...lire("rates", {}) });
       setBanque(lire("banque", { soldeDepart: 0, tauxDepart: 1.5, mouvements: [] }));
+      setPrimes(lire("primes", {}));
       setPlanning(lire("planning", {}));
       setStatuts(lire("statuts", DEFAULT_STATUTS));
       setGarage({ ...DEFAULT_GARAGE, ...lire("garage", {}) });
@@ -747,13 +1090,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
   /* ---------- Sauvegarde (locale + cloud si connecté) ---------- */
   const saveAll = useCallback(async (nextEntries, nextRates) => {
     const donnees = {
-      entries: nextEntries ?? entries, rates: nextRates ?? rates, banque, planning, statuts, garage,
+      entries: nextEntries ?? entries, rates: nextRates ?? rates, banque, primes, planning, statuts, garage,
       categoriesEntretien, categoriesDepannage, carburant, theme,
     };
     try {
       storage.set(ns("entries"), donnees.entries);
       storage.set(ns("rates"), donnees.rates);
       storage.set(ns("banque"), banque);
+      storage.set(ns("primes"), primes);
       storage.set(ns("planning"), planning);
       storage.set(ns("statuts"), statuts);
       storage.set(ns("garage"), garage);
@@ -778,14 +1122,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
       setSaveStatus("Échec de l'enregistrement");
       setTimeout(() => setSaveStatus(""), 2500);
     }
-  }, [entries, rates, banque, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, user]);
+  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, user]);
 
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => { saveAll(); }, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, rates, banque, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, loaded]);
+  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, loaded]);
 
   useEffect(() => {
     const annonces = publicites.annonces || [];
@@ -817,7 +1161,21 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
   };
 
   const calc = useMemo(() => computeEntry(currentEntry, rates, nowLocalISO()), [currentEntry, rates, liveTick]);
-  const routier = useMemo(() => computeModeRoutier(currentEntry, rates, nowLocalISO(), calc.serviceMin), [currentEntry, rates, calc.serviceMin, liveTick]);
+  const routier = useMemo(() => computeModeRoutier(currentEntry, rates, nowLocalISO(), calc.serviceMin, calc.pauseMin), [currentEntry, rates, calc.serviceMin, calc.pauseMin, liveTick]);
+
+  // Coupure de repos : temps écoulé entre la fin de service de la veille (ou du dernier jour travaillé)
+  // et le début de service du jour sélectionné (ou l'instant présent si le service n'a pas encore commencé).
+  const coupure = useMemo(() => {
+    const entreesTriees = entries.filter((e) => e.finService && e.date < selectedDate).sort((a, b) => b.date.localeCompare(a.date));
+    const derniereEntreeAvecFin = entreesTriees[0];
+    if (!derniereEntreeAvecFin) return null;
+    const finPrecedente = new Date(derniereEntreeAvecFin.finService);
+    const debutSuivant = currentEntry.debutService ? new Date(currentEntry.debutService) : new Date(nowLocalISO());
+    const dureeMin = (debutSuivant - finPrecedente) / 60000;
+    if (dureeMin < 0) return null;
+    const estWeekend = [0, 6].includes(finPrecedente.getDay()) || [0, 6].includes(debutSuivant.getDay());
+    return { dureeMin, depuisDate: derniereEntreeAvecFin.date, enCours: !currentEntry.debutService, estWeekend };
+  }, [entries, selectedDate, currentEntry.debutService, liveTick]);
 
   /* ---------- Actions de pointage ---------- */
 
@@ -953,13 +1311,113 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
+  const genererRapportPDF = async () => {
+    const jsPDFLib = window.jspdf?.jsPDF;
+    if (!jsPDFLib) { setSaveStatus("Génération PDF indisponible (pas de réseau au premier chargement)"); setTimeout(() => setSaveStatus(""), 3000); return; }
+
+    const label = { jour: "Jour", semaine: "Semaine", mois: "Mois", annee: "Année" }[periodType];
+    const doc = new jsPDFLib({ unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const NAVY = [15, 23, 42], AMBER = [245, 158, 11], SLATE = [71, 85, 105], LIGHT = [241, 245, 249];
+
+    // En-tête
+    doc.setFillColor(...NAVY); doc.rect(0, 0, pageW, 28, "F");
+    doc.setTextColor(...AMBER); doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+    doc.text("MON CARNET DE BORD", 14, 13);
+    doc.setTextColor(220, 220, 230); doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    doc.text("Yoda 0.1 — FARDOUX Mathieu", 14, 20);
+    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text(`Rapport — ${label}`, pageW - 14, 13, { align: "right" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(200, 200, 210);
+    doc.text(`Référence : ${refDate}`, pageW - 14, 20, { align: "right" });
+
+    // Bloc résumé
+    let y = 38;
+    doc.setTextColor(...NAVY); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+    doc.text("Résumé de la période", 14, y);
+    y += 6;
+    const resume = [
+      ["Temps de service total", fmtHM(periodTotals.serviceMin)],
+      ["Amplitude totale", fmtHM(periodTotals.amplitudeMin)],
+      ["Heures de nuit (majorées 20%)", fmtHM(periodTotals.nightMin)],
+      ["Frais de route totaux", `${periodTotals.frais.toFixed(2)} €`],
+      ["Nombre de journées travaillées", String(entriesInPeriod.length)],
+    ];
+    doc.autoTable({
+      startY: y, theme: "plain", styles: { fontSize: 10, textColor: NAVY },
+      columnStyles: { 0: { textColor: SLATE }, 1: { fontStyle: "bold", halign: "right" } },
+      body: resume, margin: { left: 14, right: 14 },
+    });
+
+    // Tableau détaillé
+    y = doc.lastAutoTable.finalY + 10;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...NAVY);
+    doc.text("Détail journalier", 14, y);
+
+    const liveNowStr = nowLocalISO();
+    const lignes = entriesInPeriod.map((e) => {
+      const c = computeEntry(e, rates, liveNowStr);
+      return [
+        e.date, e.debutService ? e.debutService.slice(11, 16) : "—", e.finService ? e.finService.slice(11, 16) : "—",
+        fmtHM(c.amplitudeMin), fmtHM(c.pauseMin), fmtHM(c.serviceMin), fmtHM(c.nightWorkedMin), `${c.frais.toFixed(2)} €`,
+      ];
+    });
+    doc.autoTable({
+      startY: y + 4,
+      head: [["Date", "Début", "Fin", "Amplitude", "Pause", "Service", "Nuit", "Frais"]],
+      body: lignes,
+      theme: "striped",
+      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: "bold", fontSize: 9 },
+      bodyStyles: { fontSize: 8.5, textColor: [30, 41, 59] },
+      alternateRowStyles: { fillColor: LIGHT },
+      margin: { left: 14, right: 14 },
+      didDrawPage: (data) => {
+        const pageH = doc.internal.pageSize.getHeight();
+        doc.setFontSize(8); doc.setTextColor(...SLATE);
+        doc.text("Mon carnet de bord — Yoda 0.1 — FARDOUX Mathieu", 14, pageH - 8);
+        doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageW - 14, pageH - 8, { align: "right" });
+      },
+    });
+
+    const nomFichier = `rapport-${periodType}-${refDate}.pdf`;
+
+    try {
+      const CapFS = window.Capacitor?.Plugins?.Filesystem;
+      const CapShare = window.Capacitor?.Plugins?.Share;
+      if (CapFS && CapShare) {
+        const base64 = doc.output("datauristring").split(",")[1];
+        const res = await CapFS.writeFile({ path: nomFichier, data: base64, directory: "DOCUMENTS" });
+        await CapShare.share({ title: "Rapport Mon carnet de bord", url: res.uri, dialogTitle: "Partager le rapport" });
+        setSaveStatus("Rapport PDF partagé ✓");
+      } else {
+        doc.save(nomFichier); // repli navigateur : téléchargement direct
+        setSaveStatus("Rapport PDF téléchargé ✓");
+      }
+    } catch (err) {
+      setSaveStatus("Échec de la génération du rapport PDF");
+    }
+    setTimeout(() => setSaveStatus(""), 2500);
+  };
+
   /* ---------- Paie mensuelle ---------- */
 
   const entriesInMonth = useMemo(
     () => entries.filter((e) => e.date.slice(0, 7) === payMonth),
     [entries, payMonth]
   );
-  const pay = useMemo(() => computeMonthPay(entriesInMonth, rates, nowLocalISO()), [entriesInMonth, rates, liveTick]);
+  const primesDuMois = primes[payMonth] || [];
+  const pay = useMemo(() => computeMonthPay(entriesInMonth, rates, nowLocalISO(), primesDuMois), [entriesInMonth, rates, primesDuMois, liveTick]);
+
+  const ajouterPrime = (label, montant) => {
+    if (!label || !montant) return;
+    setPrimes((prev) => ({
+      ...prev,
+      [payMonth]: [...(prev[payMonth] || []), { id: "prime-" + Math.random().toString(36).slice(2, 8), label, montant }],
+    }));
+  };
+  const supprimerPrime = (id) => {
+    setPrimes((prev) => ({ ...prev, [payMonth]: (prev[payMonth] || []).filter((p) => p.id !== id) }));
+  };
 
   const envoyerPaieEmail = () => {
     const subject = `Carnet de bord — Estimation de paie — ${payMonth}`;
@@ -1189,6 +1647,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
     setEntries([]);
     setRates(DEFAULT_RATES);
     setBanque({ soldeDepart: 0, tauxDepart: 1.5, mouvements: [] });
+    setPrimes({});
     setPlanning({});
     setStatuts(DEFAULT_STATUTS);
     setGarage(DEFAULT_GARAGE);
@@ -1208,30 +1667,33 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
 
   /* ============================= RENDU ============================= */
 
+  const langue = (() => { try { return localStorage.getItem("carnet-langue") || "fr"; } catch (e) { return "fr"; } })();
+  const t = (cle, params) => traduire(langue, cle, params);
+
   const TABS = [
-    { id: "pointage", label: "Pointage", icon: Clock },
-    { id: "frais", label: "Frais", icon: Euro },
-    { id: "conformite", label: "Conformité", icon: AlertCircle },
-    { id: "planning", label: "Planning", icon: Calendar },
-    { id: "banque", label: "Banque", icon: Save },
-    { id: "garage", label: "Garage", icon: Wrench },
-    { id: "carburant", label: "Carburant", icon: Fuel },
-    { id: "rapports", label: "Rapports", icon: FileText },
-    { id: "paie", label: "Paie", icon: Calendar },
-    { id: "reglages", label: "Réglages", icon: Settings },
-    ...(isAdmin ? [{ id: "admin", label: "Admin", icon: Users }] : []),
+    { id: "pointage", label: t("tabs.pointage"), icon: Clock },
+    { id: "frais", label: t("tabs.frais"), icon: Euro },
+    { id: "conformite", label: t("tabs.conformite"), icon: AlertCircle },
+    { id: "planning", label: t("tabs.planning"), icon: Calendar },
+    { id: "banque", label: t("tabs.banque"), icon: Save },
+    { id: "garage", label: t("tabs.garage"), icon: Wrench },
+    { id: "carburant", label: t("tabs.carburant"), icon: Fuel },
+    { id: "rapports", label: t("tabs.rapports"), icon: FileText },
+    { id: "paie", label: t("tabs.paie"), icon: Calendar },
+    { id: "reglages", label: t("tabs.reglages"), icon: Settings },
+    ...(isAdmin ? [{ id: "admin", label: t("tabs.admin"), icon: Users }] : []),
   ];
 
   return (
     <div
-      className="min-h-screen font-sans pb-10"
-      style={{ backgroundColor: theme.fond, color: theme.texte, "--accent": theme.accent }}
+      className="min-h-screen font-sans pb-24"
+      style={{ backgroundColor: theme.fond, color: theme.texte, "--accent": theme.accent, fontSize: TAILLES_TEXTE[theme.tailleTexte] || TAILLES_TEXTE.normal }}
     >
       {/* En-tête style tableau de bord */}
       <div className="border-b border-slate-800 px-4 pt-5 pb-3 sticky top-0 z-20" style={{ backgroundColor: theme.fond }}>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-black tracking-tight" style={{ color: theme.accent }}>MON CARNET DE BORD</h1>
+            <h1 className="text-xl font-black tracking-tight" style={{ color: theme.accent }}>{t("appTitre")}</h1>
             <p className="text-[11px] text-slate-500 font-mono">
               Yoda 0.1 — FARDOUX Mathieu {user && <span className="text-slate-600">— {user.email}</span>}
             </p>
@@ -1261,7 +1723,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => changerOnglet(t.id)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
                 tab === t.id ? "text-slate-950" : "bg-slate-800/70 text-slate-400 hover:text-slate-200"
               }`}
@@ -1273,7 +1735,22 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
         </div>
       </div>
 
-      {!sansPub && publicites.actif && publicites.annonces.length > 0 && (
+      {joursRestantsEssai != null && (
+        <div className={`text-center py-1.5 text-xs font-semibold ${joursRestantsEssai <= 5 ? "bg-rose-600 text-white" : "bg-indigo-600 text-white"}`}>
+          {joursRestantsEssai > 0
+            ? `Essai gratuit — ${joursRestantsEssai} jour${joursRestantsEssai > 1 ? "s" : ""} restant${joursRestantsEssai > 1 ? "s" : ""}`
+            : "Essai gratuit terminé aujourd'hui"}
+        </div>
+      )}
+
+      {miseAJourDisponible && (
+        <a href={versionDistante.lien} target="_blank" rel="noreferrer"
+          className="flex items-center justify-center gap-2 bg-emerald-600 text-white text-center py-2 text-xs font-bold">
+          <Save size={13} /> Nouvelle version {versionDistante.derniereVersion} disponible — Toucher pour mettre à jour
+        </a>
+      )}
+
+      {!sansPubEffectif && publicites.actif && publicites.annonces.length > 0 && (
         <BanniereRotative annonce={publicites.annonces[pubIndex % publicites.annonces.length]} theme={theme} />
       )}
 
@@ -1340,6 +1817,12 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               <StatCard icon={Coffee} label="Pause" value={fmtHM(calc.pauseMin)} sub={calc.pauseEnCours ? "● en cours" : undefined} accent="text-sky-400" />
               <StatCard icon={Clock} label="Temps service" value={fmtHM(calc.serviceMin)} sub={calc.enCoursService ? "● en cours" : "pour la paie"} accent="text-emerald-400" />
               <StatCard icon={Moon} label="Nuit (21h-6h)" value={fmtHM(calc.nightWorkedMin)} sub="majoré 20%" accent="text-indigo-400" />
+              {coupure && (
+                <StatCard icon={Moon} label={coupure.estWeekend ? "Coupure (week-end)" : "Coupure de repos"}
+                  value={fmtHM(coupure.dureeMin)}
+                  sub={coupure.enCours ? `● en cours depuis le ${coupure.depuisDate}` : `depuis le ${coupure.depuisDate}`}
+                  accent={coupure.dureeMin < rates.reposNormal * 60 ? "text-rose-400" : "text-emerald-400"} />
+              )}
             </div>
 
             {routier && (
@@ -1352,13 +1835,17 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
                   <span className="text-xs uppercase tracking-wide text-slate-400 flex items-center gap-1.5">
                     <AlertCircle size={13} /> Mode Routier — {routier.enJournee ? "Départ en journée" : "Départ de nuit"}
                   </span>
-                  <span className="text-[10px] text-slate-500">Ampli. max {routier.amplitudeMaxH}h</span>
+                  <span className="text-[10px] text-slate-500">Ampli. {routier.amplitudeMaxH}h / Service {routier.serviceMaxH}h max</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-300">Fin impérative (amplitude)</span>
                   <span className={`font-mono font-bold text-lg ${
                     routier.niveauAmplitude === "critique" ? "text-rose-400" : routier.niveauAmplitude === "alerte" ? "text-amber-400" : "text-slate-100"
                   }`}>{routier.finImperativeHHMM}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-300">Fin de service (amplitude − pauses)</span>
+                  <span className="font-mono font-bold text-lg text-emerald-400">{routier.finServiceHHMM}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-400">Temps restant avant fin d'amplitude</span>
@@ -1367,7 +1854,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Temps de service restant (avant plafond)</span>
+                  <span className="text-slate-400">Temps de service restant (plafond {routier.serviceMaxH}h)</span>
                   <span className={routier.niveauService === "critique" ? "text-rose-400 font-bold" : routier.niveauService === "alerte" ? "text-amber-400 font-bold" : "text-slate-300"}>
                     {routier.tempsServiceRestantMin > 0 ? fmtHM(routier.tempsServiceRestantMin) : "Dépassé"}
                   </span>
@@ -1529,6 +2016,27 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
 
             {geoStatus && <div className="text-xs text-amber-400 flex items-center gap-1"><MapPin size={12} /> {geoStatus}</div>}
 
+            {rates.modeVRPActif && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-3">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Frais VRP / Commercial</span>
+                <label className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-slate-300">🛣 Péage (€)</span>
+                  <input type="number" step="0.01" value={currentEntry.peage} onChange={(e) => updateEntry({ peage: e.target.value })}
+                    className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-right" />
+                </label>
+                <label className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-slate-300">🅿 Parking (€)</span>
+                  <input type="number" step="0.01" value={currentEntry.parking} onChange={(e) => updateEntry({ parking: e.target.value })}
+                    className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-right" />
+                </label>
+                <label className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-slate-300">🏨 Hôtel (€)</span>
+                  <input type="number" step="0.01" value={currentEntry.hotel} onChange={(e) => updateEntry({ hotel: e.target.value })}
+                    className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-right" />
+                </label>
+              </div>
+            )}
+
             <div className="bg-amber-500 text-slate-950 rounded-xl p-3 font-bold text-center">
               Total frais du jour : {calc.frais.toFixed(2)} €
             </div>
@@ -1670,7 +2178,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               </div>
             )}
 
-            <Section titre="Solde de départ">
+            <Section titre={t("sections.soldeDepart")}>
               <ChampNombre label="Heures de départ" value={banque.soldeDepart} onChange={(v) => setBanque((p) => ({ ...p, soldeDepart: v }))} />
               <ChampNombre label="Taux associé (ex: 1.5 = 150%)" value={banque.tauxDepart} onChange={(v) => setBanque((p) => ({ ...p, tauxDepart: v }))} />
             </Section>
@@ -1703,7 +2211,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
         {/* ============ ONGLET GARAGE ============ */}
         {tab === "garage" && (
           <div className="flex flex-col gap-3">
-            <Section titre="Tracteur">
+            <Section titre={t("sections.tracteur")}>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span>Immatriculation</span>
                 <input type="text" value={garage.tracteur.immatriculation} onChange={(e) => updateGarageVehicule("tracteur", "immatriculation", e.target.value)}
@@ -1716,7 +2224,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               </label>
             </Section>
 
-            <Section titre="Remorque">
+            <Section titre={t("sections.remorque")}>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span>Immatriculation</span>
                 <input type="text" value={garage.remorque.immatriculation} onChange={(e) => updateGarageVehicule("remorque", "immatriculation", e.target.value)}
@@ -1858,7 +2366,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
             </div>
 
             <div className="flex gap-2">
-              <button onClick={envoyerRapportEmail} className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> Envoyer par e-mail</button>
+              <button onClick={genererRapportPDF} className="flex-1 flex items-center justify-center gap-1.5 bg-amber-500 text-slate-950 rounded-lg py-2 text-xs font-bold"><FileText size={14} /> Rapport PDF</button>
+              <button onClick={envoyerRapportEmail} className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> E-mail</button>
               <button onClick={supprimerPeriode} className="flex items-center justify-center gap-1.5 bg-rose-900/40 text-rose-300 rounded-lg py-2 px-3 text-xs font-semibold"><Trash2 size={14} /> Supprimer</button>
             </div>
           </div>
@@ -1896,13 +2405,32 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               <StatCard icon={Moon} label="Dont nuit" value={`${pay.nightH.toFixed(2)} h`} accent="text-indigo-400" />
             </div>
 
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Primes du mois (incluses dans le brut)</span>
+              {primesDuMois.length === 0 && <p className="text-xs text-slate-500">Aucune prime ajoutée ce mois-ci.</p>}
+              {primesDuMois.map((p) => (
+                <div key={p.id} className="flex items-center justify-between text-sm bg-slate-800/60 rounded-lg px-3 py-2">
+                  <span>{p.label}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-emerald-400">{Number(p.montant).toFixed(2)} €</span>
+                    <button onClick={() => supprimerPrime(p.id)} className="text-rose-400"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              ))}
+              <FormPrime onValider={ajouterPrime} />
+            </div>
+
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-1.5 text-sm">
-              <Ligne label="Salaire brut estimé" value={`${pay.salaireBrut.toFixed(2)} €`} />
-              <Ligne label="Salaire net estimé" value={`${pay.salaireNet.toFixed(2)} €`} />
+              <Ligne label="Base horaire (heures + nuit)" value={`${pay.salaireBaseHoraire.toFixed(2)} €`} />
               <Ligne label="Frais de route" value={`${pay.frais.toFixed(2)} €`} />
+              <Ligne label="Primes" value={`${pay.sommePrimes.toFixed(2)} €`} />
+              <div className="border-t border-slate-700 my-1" />
+              <Ligne label={<b>Salaire brut total</b>} value={<b>{pay.salaireBrut.toFixed(2)} €</b>} />
+              <Ligne label={`Taux d'imposition (${pay.tauxImposition}%)`} value={`− ${(pay.salaireBrut * pay.tauxImposition / 100).toFixed(2)} €`} />
+              <Ligne label="Cotisation mutuelle" value={`− ${pay.mutuelle.toFixed(2)} €`} />
               <div className="border-t border-slate-700 my-1" />
               <Ligne label={<b>TOTAL NET ESTIMÉ</b>} value={<b className="text-amber-400 text-lg">{pay.netTotal.toFixed(2)} €</b>} />
-              <p className="text-[10px] text-slate-500 mt-1 flex items-start gap-1"><AlertCircle size={12} className="mt-0.5 shrink-0" /> Estimation indicative — les indemnités de frais ne sont généralement pas soumises aux cotisations.</p>
+              <p className="text-[10px] text-slate-500 mt-1 flex items-start gap-1"><AlertCircle size={12} className="mt-0.5 shrink-0" /> Estimation indicative — vérifie ces taux avec ton employeur/comptable, chaque contrat peut différer.</p>
             </div>
 
             <button onClick={envoyerPaieEmail} className="flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> Envoyer l'estimation par e-mail</button>
@@ -1912,12 +2440,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
         {/* ============ ONGLET RÉGLAGES ============ */}
         {tab === "reglages" && (
           <div className="flex flex-col gap-4">
-            <Section titre="Taux horaire & paie">
+            <Section titre={t("sections.tauxHoraire")}>
               <ChampNombre label="Taux horaire de base (€)" value={rates.tauxHoraire} onChange={(v) => updateRate("tauxHoraire", v)} />
               <ChampNombre label="Coefficient net / brut" value={rates.coefNet} onChange={(v) => updateRate("coefNet", v)} step="0.01" />
+              <ChampNombre label="Taux d'imposition (%)" value={rates.tauxImposition} onChange={(v) => updateRate("tauxImposition", v)} step="0.1" />
+              <ChampNombre label="Cotisation mutuelle (€/mois)" value={rates.mutuelleCotisation} onChange={(v) => updateRate("mutuelleCotisation", v)} step="0.01" />
             </Section>
 
-            <Section titre="Paliers du contrat (heures)">
+            <Section titre={t("sections.paliers")}>
               <ChampNombre label="Fin taux normal" value={rates.seuil1} onChange={(v) => updateRate("seuil1", v)} />
               <ChampNombre label="Fin équivalence 25%" value={rates.seuil2} onChange={(v) => updateRate("seuil2", v)} />
               <ChampNombre label="Fin HS 25%" value={rates.seuil3} onChange={(v) => updateRate("seuil3", v)} />
@@ -1925,7 +2455,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               <ChampNombre label="Plafond payé par l'employeur — banque au-delà (h)" value={rates.seuilBanque} onChange={(v) => updateRate("seuilBanque", v)} />
             </Section>
 
-            <Section titre="Majorations activables">
+            <Section titre={t("sections.majorations")}>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Heures sup. 25%</span>
                 <ToggleActif value={rates.activerHS25} onChange={(v) => updateRate("activerHS25", v)} />
@@ -1941,7 +2471,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               <p className="text-[10px] text-slate-500">Un palier désactivé garde le taux du palier actif précédent au lieu d'être exclu.</p>
             </Section>
 
-            <Section titre="Amplitude & repos réglementaires">
+            <Section titre={t("sections.amplitudeRepos")}>
               <ChampNombre label="Amplitude normale max (h)" value={rates.ampliBase} onChange={(v) => updateRate("ampliBase", v)} />
               <ChampNombre label="Amplitude exceptionnelle max (h)" value={rates.ampliExcep} onChange={(v) => updateRate("ampliExcep", v)} />
               <ChampNombre label="Occurrences exceptionnelles autorisées / semaine" value={rates.ampliExcepQuota} onChange={(v) => updateRate("ampliExcepQuota", v)} />
@@ -1950,7 +2480,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               <ChampNombre label="Coupure de compensation minimale (h)" value={rates.reposCompensation} onChange={(v) => updateRate("reposCompensation", v)} />
             </Section>
 
-            <Section titre="Mode Routier — fin impérative & alertes">
+            <Section titre={t("sections.modeRoutier")}>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Activer le mode Routier</span>
                 <ToggleActif value={rates.activerModeRoutier} onChange={(v) => updateRate("activerModeRoutier", v)} />
@@ -1969,6 +2499,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
                   </label>
                   <ChampNombre label="Amplitude si départ en journée (h)" value={rates.routierAmplitudeJour} onChange={(v) => updateRate("routierAmplitudeJour", v)} />
                   <ChampNombre label="Amplitude si départ de nuit (h)" value={rates.routierAmplitudeNuit} onChange={(v) => updateRate("routierAmplitudeNuit", v)} />
+                  <ChampNombre label="Plafond temps de service — journée (h)" value={rates.routierServiceJour} onChange={(v) => updateRate("routierServiceJour", v)} />
+                  <ChampNombre label="Plafond temps de service — nuit (h)" value={rates.routierServiceNuit} onChange={(v) => updateRate("routierServiceNuit", v)} />
                   <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                     <span>Seuil d'alerte</span>
                     <select value={rates.alerteMinutes} onChange={(e) => updateRate("alerteMinutes", Number(e.target.value))}
@@ -1984,7 +2516,21 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               )}
             </Section>
 
-            <Section titre="Apparence">
+            <Section titre={t("sections.modeVRP")}>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Activer le mode VRP / Commercial</span>
+                <ToggleActif value={rates.modeVRPActif} onChange={(v) => updateRate("modeVRPActif", v)} />
+              </div>
+              <p className="text-[10px] text-slate-500">Ajoute des champs de frais péage, parking et hôtel dans l'onglet Frais — utile pour les commerciaux et VRP en plus des chauffeurs routiers.</p>
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Seuil d'alerte temps de service (minutes)</span>
+                <input type="number" min="1" value={rates.vrpAlerteSeuilMinutes} onChange={(e) => updateRate("vrpAlerteSeuilMinutes", Number(e.target.value) || 15)}
+                  className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100 text-right" />
+              </label>
+              <p className="text-[10px] text-slate-500">Valeur libre, indépendante du Mode Routier — pour être alerté avant d'atteindre ta limite personnelle de temps de service.</p>
+            </Section>
+
+            <Section titre={t("sections.apparence")}>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span>Couleur d'accent</span>
                 <input type="color" value={theme.accent} onChange={(e) => updateTheme("accent", e.target.value)} className="w-10 h-8 rounded bg-transparent" />
@@ -1997,11 +2543,24 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
                 <span>Couleur du texte</span>
                 <input type="color" value={theme.texte} onChange={(e) => updateTheme("texte", e.target.value)} className="w-10 h-8 rounded bg-transparent" />
               </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Couleur des cartes</span>
+                <input type="color" value={theme.carte} onChange={(e) => updateTheme("carte", e.target.value)} className="w-10 h-8 rounded bg-transparent" />
+              </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Taille du texte</span>
+                <select value={theme.tailleTexte} onChange={(e) => updateTheme("tailleTexte", e.target.value)}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100">
+                  <option value="petit">Petit</option>
+                  <option value="normal">Normal</option>
+                  <option value="grand">Grand</option>
+                </select>
+              </label>
               <button onClick={() => setTheme(DEFAULT_THEME)} className="text-xs text-slate-400 underline self-start">Réinitialiser les couleurs</button>
             </Section>
 
             {isAdmin ? (
-              <Section titre="Bannière publicitaire (accès administrateur)">
+              <Section titre={t("sections.banniereAdmin")}>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-400">Activer la bannière (pour tous les utilisateurs)</span>
                   <ToggleActif value={publicites.actif} onChange={(v) => setPublicites((p) => ({ ...p, actif: v }))} />
@@ -2016,9 +2575,11 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
                   {publicites.annonces.map((a) => (
                     <div key={a.id} className="bg-slate-800/60 rounded-lg p-2 flex flex-col gap-1.5">
                       <input type="text" value={a.texte} onChange={(e) => modifierAnnonce(a.id, { texte: e.target.value })}
+                        onBlur={(e) => modifierAnnonce(a.id, { texte: nettoyerTexte(e.target.value, 200) })}
                         placeholder="Texte de l'annonce" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
                       <div className="flex gap-2">
                         <input type="text" value={a.lien} onChange={(e) => modifierAnnonce(a.id, { lien: e.target.value })}
+                          onBlur={(e) => modifierAnnonce(a.id, { lien: validerURL(e.target.value) })}
                           placeholder="Lien (optionnel, https://...)" className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
                         <button onClick={() => supprimerAnnonce(a.id)} className="text-rose-400 px-2"><Trash2 size={16} /></button>
                       </div>
@@ -2030,12 +2591,12 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
                 <p className="text-[10px] text-slate-500 mt-1">Ces annonces sont visibles par tous les comptes de l'application. Pour de la publicité rémunératrice automatique (Google AdMob), une intégration séparée est nécessaire.</p>
               </Section>
             ) : (
-              <Section titre="Bannière publicitaire">
+              <Section titre={t("sections.banniere")}>
                 <p className="text-xs text-slate-500">Seul l'administrateur de l'application peut gérer les publicités.</p>
               </Section>
             )}
 
-            <Section titre="Frais de route (France / Étranger)">
+            <Section titre={t("sections.fraisRoute")}>
               <ChampNombre label="Casse-croûte France (€)" value={rates.casseCroute} onChange={(v) => updateRate("casseCroute", v)} step="0.01" />
               <ChampNombre label="Casse-croûte Étranger (€)" value={rates.casseCrouteEtr} onChange={(v) => updateRate("casseCrouteEtr", v)} step="0.01" />
               <ChampNombre label="Repas France (€)" value={rates.repas} onChange={(v) => updateRate("repas", v)} step="0.01" />
@@ -2046,7 +2607,32 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               <ChampNombre label="Week-end Étranger (€)" value={rates.weekendEtr} onChange={(v) => updateRate("weekendEtr", v)} step="0.01" />
             </Section>
 
-            <Section titre="Mises à jour">
+            <Section titre={t("sections.monAbonnement")}>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">Niveau actuel</span>
+                <span className={`font-bold px-3 py-1 rounded-full text-xs ${
+                  niveauAbonnement === "premium" ? "bg-emerald-600 text-white" : niveauAbonnement === "standard" ? "bg-sky-500 text-slate-950" : "bg-slate-800 text-slate-300"
+                }`}>
+                  {niveauAbonnement === "premium" ? "3,99 € — Aucune pub" : niveauAbonnement === "standard" ? "1,99 € — Pub réduite" : "Gratuit — avec pub"}
+                </span>
+              </div>
+              {niveauAbonnement !== "standard" && (
+                <button onClick={() => acheterAbonnement(PRODUIT_STANDARD_ID)} disabled={achatEnCours}
+                  className="bg-sky-600 text-white text-sm font-semibold rounded-lg py-2.5 disabled:opacity-50">
+                  S'abonner — 1,99 €/mois (bannière + vidéo sur Paie uniquement)
+                </button>
+              )}
+              {niveauAbonnement !== "premium" && (
+                <button onClick={() => acheterAbonnement(PRODUIT_PREMIUM_ID)} disabled={achatEnCours}
+                  className="bg-emerald-600 text-white text-sm font-semibold rounded-lg py-2.5 disabled:opacity-50">
+                  S'abonner — 3,99 €/mois (aucune publicité)
+                </button>
+              )}
+              {messageAchat && <p className="text-xs text-amber-400">{messageAchat}</p>}
+              <p className="text-[10px] text-slate-500">Paiement géré et sécurisé par Google Play. Chaque achat est vérifié par notre serveur avant activation.</p>
+            </Section>
+
+            <Section titre={t("sections.misesAJour")}>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Version installée</span>
                 <span className="font-mono text-slate-200">{APP_VERSION}</span>
@@ -2079,7 +2665,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               )}
             </Section>
 
-            <Section titre="Accès Web">
+            <Section titre={t("sections.accesWeb")}>
               <p className="text-[10px] text-slate-500">Utilise le même compte pour accéder à tes données depuis un navigateur (ordinateur, autre téléphone).</p>
               <a href={LIEN_WEB_APP} target="_blank" rel="noreferrer"
                 className="flex items-center justify-center gap-1.5 bg-sky-600 text-white text-xs font-semibold rounded-lg py-2">
@@ -2087,7 +2673,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout }) {
               </a>
             </Section>
 
-            <Section titre="Sauvegarde des données">
+            <Section titre={t("sections.sauvegarde")}>
               <p className="text-[10px] text-slate-500">Enregistre un fichier de sauvegarde sur ton téléphone, à envoyer par e-mail avant un changement d'appareil.</p>
               <button onClick={exporterDonnees} className="flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg py-2">
                 <Save size={14} /> Exporter et partager la sauvegarde
@@ -2329,6 +2915,25 @@ function FormDepannage({ onValider, categories, onAjouterCategorie }) {
   );
 }
 
+function FormPrime({ onValider }) {
+  const [label, setLabel] = useState("");
+  const [montant, setMontant] = useState("");
+  const valider = () => {
+    if (!label.trim() || !montant) return;
+    onValider(nettoyerTexte(label, 60), montant);
+    setLabel(""); setMontant("");
+  };
+  return (
+    <div className="flex gap-2">
+      <input type="text" placeholder="Libellé (ex: Prime qualité)" value={label} onChange={(e) => setLabel(e.target.value)}
+        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      <input type="number" step="0.01" placeholder="€" value={montant} onChange={(e) => setMontant(e.target.value)}
+        className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+      <button onClick={valider} className="bg-emerald-600 text-white text-xs font-semibold rounded-lg px-3">Ajouter</button>
+    </div>
+  );
+}
+
 function FormPlein({ onValider }) {
   const [date, setDate] = useState(todayISODate());
   const [type, setType] = useState("gasoil");
@@ -2441,6 +3046,15 @@ function EcranConnexion() {
   const [erreur, setErreur] = useState("");
   const [chargement, setChargement] = useState(false);
   const [messageReset, setMessageReset] = useState("");
+  const [langue, setLangue] = useState(() => {
+    try { return localStorage.getItem("carnet-langue") || "fr"; } catch (e) { return "fr"; }
+  });
+  const t = (cle, params) => traduire(langue, cle, params);
+
+  const changerLangue = (code) => {
+    setLangue(code);
+    try { localStorage.setItem("carnet-langue", code); } catch (e) {}
+  };
 
   const valider = async () => {
     setErreur(""); setChargement(true);
@@ -2481,19 +3095,24 @@ function EcranConnexion() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-slate-900/60 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4">
+        <select value={langue} onChange={(e) => changerLangue(e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs self-end">
+          {LANGUES_DISPONIBLES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+        </select>
+
         <div className="text-center">
-          <h1 className="text-xl font-black tracking-tight text-amber-400">MON CARNET DE BORD</h1>
-          <p className="text-[11px] text-slate-500 font-mono">Yoda 0.1 — FARDOUX Mathieu</p>
+          <h1 className="text-xl font-black tracking-tight text-amber-400">{t("appTitre")}</h1>
+          <p className="text-[11px] text-slate-500 font-mono">{t("appTagline")}</p>
         </div>
 
         <div className="flex gap-1 bg-slate-800/60 rounded-xl p-1">
-          <button onClick={() => setMode("login")} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${mode === "login" ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}>Connexion</button>
-          <button onClick={() => setMode("signup")} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${mode === "signup" ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}>Créer un compte</button>
+          <button onClick={() => setMode("login")} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${mode === "login" ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}>{t("connexion")}</button>
+          <button onClick={() => setMode("signup")} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${mode === "signup" ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}>{t("creerCompte")}</button>
         </div>
 
-        <input type="email" placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)}
+        <input type="email" placeholder={t("email")} value={email} onChange={(e) => setEmail(e.target.value)}
           className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
-        <input type="password" placeholder="Mot de passe (6 caractères min.)" value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)}
+        <input type="password" placeholder={t("motDePasse")} value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)}
           className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
 
         {erreur && <p className="text-xs text-rose-400">{erreur}</p>}
@@ -2501,15 +3120,15 @@ function EcranConnexion() {
 
         <button onClick={valider} disabled={chargement || !email || !motDePasse}
           className="bg-amber-500 text-slate-950 font-bold text-sm rounded-lg py-2.5 disabled:opacity-50">
-          {chargement ? "Patiente…" : mode === "signup" ? "Créer mon compte" : "Se connecter"}
+          {chargement ? t("patiente") : mode === "signup" ? t("creerMonCompte") : t("seConnecter")}
         </button>
 
         {mode === "login" && (
-          <button onClick={reinitialiserMotDePasse} className="text-xs text-slate-400 underline">Mot de passe oublié ?</button>
+          <button onClick={reinitialiserMotDePasse} className="text-xs text-slate-400 underline">{t("motDePasseOublie")}</button>
         )}
 
         <p className="text-[10px] text-slate-500 text-center">
-          Un nouveau compte bénéficie de {DUREE_ESSAI_JOURS} jours d'essai gratuit automatique.
+          {t("essaiGratuit", { jours: DUREE_ESSAI_JOURS_DEFAUT })}
         </p>
       </div>
     </div>
@@ -2532,12 +3151,18 @@ function PanneauAdmin() {
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [filtre, setFiltre] = useState("");
+  const [dureeEssaiGlobale, setDureeEssaiGlobaleAdmin] = useState(DUREE_ESSAI_JOURS_DEFAUT);
+  const [dureesPersonnalisees, setDureesPersonnalisees] = useState({});
 
   const charger = async () => {
     setChargement(true);
     try {
       const snap = await db.collection("users").get();
       setUtilisateurs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (err) { /* erreur silencieuse */ }
+    try {
+      const snapConfig = await db.collection("config").doc("general").get();
+      if (snapConfig.exists && snapConfig.data().dureeEssaiJours) setDureeEssaiGlobaleAdmin(Number(snapConfig.data().dureeEssaiJours));
     } catch (err) { /* erreur silencieuse */ }
     setChargement(false);
   };
@@ -2551,22 +3176,58 @@ function PanneauAdmin() {
     } catch (err) { /* erreur silencieuse */ }
   };
 
+  const publierDureeGlobale = async () => {
+    try {
+      await db.collection("config").doc("general").set({ dureeEssaiJours: Number(dureeEssaiGlobale) || DUREE_ESSAI_JOURS_DEFAUT }, { merge: true });
+    } catch (err) { /* erreur silencieuse */ }
+  };
+
+  const enregistrerDureePersonnalisee = async (id) => {
+    const valeur = dureesPersonnalisees[id];
+    try {
+      if (valeur === "" || valeur === undefined) {
+        await db.collection("users").doc(id).update({ dureeEssaiPersonnalisee: firebase.firestore.FieldValue.delete() });
+        setUtilisateurs((prev) => prev.map((u) => (u.id === id ? { ...u, dureeEssaiPersonnalisee: undefined } : u)));
+      } else {
+        await db.collection("users").doc(id).update({ dureeEssaiPersonnalisee: Number(valeur) });
+        setUtilisateurs((prev) => prev.map((u) => (u.id === id ? { ...u, dureeEssaiPersonnalisee: Number(valeur) } : u)));
+      }
+    } catch (err) { /* erreur silencieuse */ }
+  };
+
   const utilisateursFiltres = utilisateurs.filter((u) => (u.email || "").toLowerCase().includes(filtre.toLowerCase()));
   const nbGratuits = utilisateurs.filter((u) => u.freeAccess).length;
-  const nbSansPub = utilisateurs.filter((u) => u.sansPub).length;
+  const nbAbonnes = utilisateurs.filter((u) => u.abonnementActif).length;
+  const nbStandard = utilisateurs.filter((u) => u.niveauAbonnement === "standard").length;
+  const nbPremium = utilisateurs.filter((u) => u.niveauAbonnement === "premium").length;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
           <span className="text-[11px] text-slate-400">Comptes total</span>
           <span className="font-mono font-bold text-lg text-slate-100">{utilisateurs.length}</span>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
-          <span className="text-[11px] text-slate-400">Accès gratuit / Sans pub</span>
-          <span className="font-mono font-bold text-lg text-amber-400">{nbGratuits} / {nbSansPub}</span>
+          <span className="text-[11px] text-slate-400">Abonnés actifs</span>
+          <span className="font-mono font-bold text-lg text-emerald-400">{nbAbonnes}</span>
+        </div>
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
+          <span className="text-[11px] text-slate-400">1,99€ / 3,99€</span>
+          <span className="font-mono font-bold text-lg text-amber-400">{nbStandard} / {nbPremium}</span>
         </div>
       </div>
+
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+        <span className="text-xs uppercase tracking-wide text-slate-400">Durée d'essai globale (par défaut pour tous)</span>
+        <div className="flex gap-2">
+          <input type="number" min="1" value={dureeEssaiGlobale} onChange={(e) => setDureeEssaiGlobaleAdmin(e.target.value)}
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+          <span className="text-xs text-slate-400 self-center">jours</span>
+          <button onClick={publierDureeGlobale} className="bg-emerald-600 text-white text-xs font-semibold rounded-lg px-3">Publier</button>
+        </div>
+      </div>
+
       <input type="text" placeholder="Rechercher un e-mail" value={filtre} onChange={(e) => setFiltre(e.target.value)}
         className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
       <button onClick={charger} className="text-xs text-slate-400 underline self-start">Rafraîchir la liste</button>
@@ -2576,7 +3237,8 @@ function PanneauAdmin() {
         {!chargement && utilisateursFiltres.length === 0 && <p className="p-3 text-xs text-slate-500">Aucun utilisateur.</p>}
         {utilisateursFiltres.map((u) => {
           const jours = Math.floor(joursDepuis(u.createdAt));
-          const essaiExpire = jours > 31;
+          const dureeApplicable = u.dureeEssaiPersonnalisee ?? dureeEssaiGlobale;
+          const essaiExpire = jours > dureeApplicable;
           return (
             <div key={u.id} className="p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
@@ -2584,25 +3246,60 @@ function PanneauAdmin() {
                 <span className="text-[10px] text-slate-500">Compte créé il y a {jours}j</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${essaiExpire ? "bg-rose-900/50 text-rose-300" : "bg-emerald-900/40 text-emerald-300"}`}>
-                  {essaiExpire ? "Essai 31j expiré" : "Essai 31j en cours"}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${essaiExpire ? "bg-rose-600 text-white" : "bg-emerald-600 text-white"}`}>
+                  ● Essai {dureeApplicable}j — {essaiExpire ? "expiré" : "en cours"}
                 </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${u.freeAccess ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>
-                  {u.freeAccess ? "Déverrouillable après 31j" : "Bloqué après 31j si non accès gratuit"}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${u.abonnementActif ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400"}`}>
+                  ● Abonné {u.abonnementActif ? "actif" : "inactif"}
                 </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${u.freeAccess ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400"}`}>
+                  ● Illimité {u.freeAccess ? "actif" : "inactif"}
+                </span>
+                {u.dureeEssaiPersonnalisee != null && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-900/40 text-indigo-300">Durée d'essai personnalisée</span>
+                )}
               </div>
+              <p className="text-[10px] text-slate-500 -mt-1">
+                Accès à l'app autorisé si : Essai en cours, OU Abonné actif, OU Illimité actif. Bloqué si Verrouillé, quel que soit le reste.
+              </p>
               <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => toggleChamp(u.id, "abonnementActif", !u.abonnementActif)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.abonnementActif ? "bg-emerald-600 text-white" : "bg-rose-900/40 text-rose-300"}`}>
+                  Abonné : {u.abonnementActif ? "✓ Actif" : "✕ Inactif"}
+                </button>
                 <button onClick={() => toggleChamp(u.id, "freeAccess", !u.freeAccess)}
-                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.freeAccess ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400"}`}>
-                  Accès gratuit {u.freeAccess ? "activé" : "désactivé"}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.freeAccess ? "bg-emerald-600 text-white" : "bg-rose-900/40 text-rose-300"}`}>
+                  Illimité : {u.freeAccess ? "✓ Actif" : "✕ Inactif"}
                 </button>
                 <button onClick={() => toggleChamp(u.id, "locked", !u.locked)}
-                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.locked ? "bg-rose-600 text-white" : "bg-slate-800 text-slate-400"}`}>
-                  {u.locked ? "Verrouillé" : "Déverrouillé"}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.locked ? "bg-rose-600 text-white" : "bg-emerald-600 text-white"}`}>
+                  {u.locked ? "✕ Verrouillé" : "✓ Déverrouillé"}
                 </button>
-                <button onClick={() => toggleChamp(u.id, "sansPub", !u.sansPub)}
-                  className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.sansPub ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400"}`}>
-                  {u.sansPub ? "Sans pub" : "Avec pub"}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-slate-500">Niveau d'abonnement (règle les publicités)</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={() => toggleChamp(u.id, "niveauAbonnement", "gratuit")}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-full ${(u.niveauAbonnement || "gratuit") === "gratuit" ? "bg-slate-100 text-slate-900" : "bg-slate-800 text-slate-400"}`}>
+                    Gratuit — bannière + vidéo (Frais/Rapports/Paie)
+                  </button>
+                  <button onClick={() => toggleChamp(u.id, "niveauAbonnement", "standard")}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.niveauAbonnement === "standard" ? "bg-sky-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>
+                    1,99 € — bannière + vidéo (Paie uniquement)
+                  </button>
+                  <button onClick={() => toggleChamp(u.id, "niveauAbonnement", "premium")}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-full ${u.niveauAbonnement === "premium" ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400"}`}>
+                    3,99 € — aucune publicité
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="number" min="1" placeholder={`Défaut : ${dureeEssaiGlobale}j`}
+                  value={dureesPersonnalisees[u.id] ?? (u.dureeEssaiPersonnalisee ?? "")}
+                  onChange={(e) => setDureesPersonnalisees((prev) => ({ ...prev, [u.id]: e.target.value }))}
+                  className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs" />
+                <button onClick={() => enregistrerDureePersonnalisee(u.id)} className="text-xs text-slate-300 border border-slate-700 rounded-lg px-3 py-1">
+                  Essai perso (jours)
                 </button>
               </div>
             </div>
@@ -2623,6 +3320,14 @@ function AuthGate() {
   const [authUser, setAuthUser] = useState(null);
   const [userDoc, setUserDoc] = useState(null);
   const [pret, setPret] = useState(false);
+  const [dureeEssaiGlobale, setDureeEssaiGlobale] = useState(DUREE_ESSAI_JOURS_DEFAUT);
+
+  useEffect(() => {
+    if (!firebaseConfigueValide || !db) return;
+    db.collection("config").doc("general").get()
+      .then((snap) => { if (snap.exists && snap.data().dureeEssaiJours) setDureeEssaiGlobale(Number(snap.data().dureeEssaiJours)); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!firebaseConfigueValide) { setPret(true); return; }
@@ -2664,8 +3369,9 @@ function AuthGate() {
 
   const isAdmin = ADMIN_EMAILS.includes(authUser.email);
   const locked = userDoc?.locked === true;
-  const essaiEcoule = joursDepuis(userDoc?.createdAt) > DUREE_ESSAI_JOURS;
-  const accesAutorise = isAdmin || userDoc?.freeAccess === true || !essaiEcoule;
+  const dureeEssaiApplicable = userDoc?.dureeEssaiPersonnalisee ?? dureeEssaiGlobale;
+  const essaiEcoule = joursDepuis(userDoc?.createdAt) > dureeEssaiApplicable;
+  const accesAutorise = isAdmin || userDoc?.freeAccess === true || userDoc?.abonnementActif === true || !essaiEcoule;
 
   const deconnexion = () => auth.signOut();
 
@@ -2683,7 +3389,7 @@ function AuthGate() {
     return (
       <EcranMessage
         titre="Essai gratuit terminé"
-        message={`Ta période d'essai de ${DUREE_ESSAI_JOURS} jours est terminée. Passe à l'abonnement pour continuer à utiliser l'application.`}
+        message={`Ta période d'essai de ${dureeEssaiApplicable} jours est terminée. Passe à l'abonnement pour continuer à utiliser l'application.`}
         action={
           <div className="flex flex-col gap-2">
             <a href={LIEN_PAIEMENT} target="_blank" rel="noreferrer" className="bg-amber-500 text-slate-950 font-bold text-sm rounded-lg py-2.5">S'abonner</a>
@@ -2694,7 +3400,11 @@ function AuthGate() {
     );
   }
 
-  return <MonCarnetDeBord user={authUser} isAdmin={isAdmin} onLogout={deconnexion} />;
+  const joursRestantsEssai = (!isAdmin && userDoc?.freeAccess !== true)
+    ? Math.max(0, Math.ceil(dureeEssaiApplicable - joursDepuis(userDoc?.createdAt)))
+    : null;
+
+  return <MonCarnetDeBord user={authUser} isAdmin={isAdmin} onLogout={deconnexion} joursRestantsEssai={joursRestantsEssai} />;
 }
 
 const root = createRoot(document.getElementById("root"));
