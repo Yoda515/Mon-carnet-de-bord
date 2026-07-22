@@ -21,8 +21,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/jspdf.plugin.autotable.min.js"></script>
 
 <style>
   html, body, #root { height: 100%; background:#020617; }
@@ -243,6 +243,28 @@ const TRADUCTIONS = {
     },
     pointage: { amplitude: "Amplitude", pause: "Pause", tempsService: "Temps service", nuit: "Nuit (21h-6h)", enCours: "en cours", pourLaPaie: "pour la paie", majore: "majoré 20%" },
     frais: { casseCroute: "Casse-croûte", repasMidi: "Repas midi", repasSoir: "Repas soir", decouche: "Découche", weekend: "Week-end", france: "France", etranger: "Étranger", totalJour: "Total frais du jour" },
+    conformite: { semaineDu: "Semaine du", normale: "Normale", exceptionnelle: "Exceptionnelle", depassement: "Dépassement", reposNormal: "Repos normal", reposFractionne: "Repos fractionné conforme", reposInsuffisant: "Repos insuffisant", aucuneJournee: "Aucune journée pointée cette semaine." },
+    planning: { journeePointee: "Journée pointée (Pointage)", aucunStatut: "— (aucun statut particulier)", gererCategories: "Gérer les catégories", ajouterCategorie: "Ajouter une catégorie" },
+    banque: { soldeActuel: "Solde actuel", estimes: "estimés", aVerser: "à verser pour", auDela: "au-delà de", dejaVerse: "Déjà versé", verser: "Verser", ajouterRetrait: "Ajouter un retrait (heures utilisées)", ajouterDepot: "Ajouter un dépôt manuel", heuresDepart: "Heures de départ", tauxAssocie: "Taux associé (ex: 1.5 = 150%)", aucunMouvement: "Aucun mouvement enregistré." },
+    garage: { immatriculation: "Immatriculation", kilometrageActuel: "Kilométrage actuel", entretiens: "Entretiens", depannages: "Dépannages (crevaison, panne...)", aucunEntretien: "Aucun entretien enregistré.", aucunDepannage: "Aucun dépannage enregistré.", aFaire: "À faire", prochain: "Prochain" },
+    carburant: { consoMoyenne: "Conso. moyenne", gasoilPeriode: "Gasoil (période)", ajouterPlein: "Ajouter un plein / une charge", aucunPlein: "Aucun plein enregistré.", detailConso: "Détail consommation gasoil", gasoil: "Gasoil", adblue: "AdBlue", fiouldRouge: "Fioul rouge" },
+    rapports: { jour: "Jour", semaine: "Semaine", mois: "Mois", annee: "Année", service: "Service", nuit: "Nuit", frais: "Frais", aucuneJournee: "Aucune journée sur cette période.", enregistrerPDF: "Enregistrer le PDF", envoyerEmail: "Envoyer par e-mail", supprimer: "Supprimer" },
+    paie: {
+      active: "activé", inactif: "désactivé", base: "Base", normal: "normal", equivalence: "Équivalence", majorationNuit: "Majoration de nuit (+20%)",
+      auDelaBanque: "Au-delà de {seuil}h : versé en banque d'heures (non payé ce mois)", totalHeures: "Total heures", dontNuit: "Dont nuit",
+      primesDuMois: "Primes du mois (incluses dans le brut)", aucunePrime: "Aucune prime ajoutée ce mois-ci.",
+      baseHoraire: "Base horaire (heures + nuit)", fraisDeRoute: "Frais de route", primes: "Primes", salaireBrutTotal: "Salaire brut total",
+      tauxImposition: "Taux d'imposition", cotisationMutuelle: "Cotisation mutuelle", totalNetEstime: "TOTAL NET ESTIMÉ",
+      estimationIndicative: "Estimation indicative — vérifie ces taux avec ton employeur/comptable, chaque contrat peut différer.",
+      envoyerEstimation: "Envoyer l'estimation par e-mail",
+    },
+    admin: {
+      comptesTotal: "Comptes total", abonnesActifs: "Abonnés actifs", rechercherEmail: "Rechercher un e-mail", rafraichir: "Rafraîchir la liste",
+      chargement: "Chargement…", aucunUtilisateur: "Aucun utilisateur.", compteCreeIlYA: "Compte créé il y a", jours: "jours",
+      essaiExpire: "expiré", essaiEnCours: "en cours", deverouillableApres: "Déverrouillable après essai", bloqueApresEssai: "Bloqué après essai si non accès gratuit",
+      accesGratuitActive: "Accès gratuit activé", accesGratuitDesactive: "Accès gratuit désactivé", verrouille: "Verrouillé", deverouille: "Déverrouillé",
+      niveauAbonnement: "Niveau d'abonnement (règle les publicités)", gratuit: "Gratuit", essaiPersonnalise: "Essai perso (jours)",
+    },
   },
   en: {
     appTitre: "MY LOGBOOK", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
@@ -264,6 +286,28 @@ const TRADUCTIONS = {
     },
     pointage: { amplitude: "Duty span", pause: "Break", tempsService: "Service time", nuit: "Night (9pm-6am)", enCours: "in progress", pourLaPaie: "for payroll", majore: "20% premium" },
     frais: { casseCroute: "Snack allowance", repasMidi: "Lunch", repasSoir: "Dinner", decouche: "Overnight stay", weekend: "Weekend", france: "France", etranger: "Abroad", totalJour: "Total expenses for the day" },
+    conformite: { semaineDu: "Week of", normale: "Normal", exceptionnelle: "Exceptional", depassement: "Overrun", reposNormal: "Normal rest", reposFractionne: "Compliant split rest", reposInsuffisant: "Insufficient rest", aucuneJournee: "No day logged this week." },
+    planning: { journeePointee: "Day clocked (Clock-in)", aucunStatut: "— (no particular status)", gererCategories: "Manage categories", ajouterCategorie: "Add a category" },
+    banque: { soldeActuel: "Current balance", estimes: "estimated", aVerser: "to be paid for", auDela: "beyond", dejaVerse: "Already paid", verser: "Pay out", ajouterRetrait: "Add a withdrawal (hours used)", ajouterDepot: "Add a manual deposit", heuresDepart: "Starting hours", tauxAssocie: "Associated rate (e.g. 1.5 = 150%)", aucunMouvement: "No transaction recorded." },
+    garage: { immatriculation: "Registration", kilometrageActuel: "Current mileage", entretiens: "Maintenance", depannages: "Breakdowns (flat tire, failure...)", aucunEntretien: "No maintenance recorded.", aucunDepannage: "No breakdown recorded.", aFaire: "Due", prochain: "Next" },
+    carburant: { consoMoyenne: "Avg. consumption", gasoilPeriode: "Diesel (period)", ajouterPlein: "Add a fill-up / charge", aucunPlein: "No fill-up recorded.", detailConso: "Diesel consumption detail", gasoil: "Diesel", adblue: "AdBlue", fiouldRouge: "Red diesel" },
+    rapports: { jour: "Day", semaine: "Week", mois: "Month", annee: "Year", service: "Service", nuit: "Night", frais: "Expenses", aucuneJournee: "No day in this period.", enregistrerPDF: "Save PDF", envoyerEmail: "Send by email", supprimer: "Delete" },
+    paie: {
+      active: "enabled", inactif: "disabled", base: "Base", normal: "normal", equivalence: "Equivalent", majorationNuit: "Night premium (+20%)",
+      auDelaBanque: "Beyond {seuil}h: paid into hours bank (not paid this month)", totalHeures: "Total hours", dontNuit: "Of which night",
+      primesDuMois: "Bonuses this month (included in gross)", aucunePrime: "No bonus added this month.",
+      baseHoraire: "Hourly base (hours + night)", fraisDeRoute: "Travel expenses", primes: "Bonuses", salaireBrutTotal: "Total gross salary",
+      tauxImposition: "Tax rate", cotisationMutuelle: "Health insurance contribution", totalNetEstime: "ESTIMATED TOTAL NET",
+      estimationIndicative: "Indicative estimate — check these rates with your employer/accountant, each contract may differ.",
+      envoyerEstimation: "Send estimate by email",
+    },
+    admin: {
+      comptesTotal: "Total accounts", abonnesActifs: "Active subscribers", rechercherEmail: "Search an email", rafraichir: "Refresh list",
+      chargement: "Loading…", aucunUtilisateur: "No user.", compteCreeIlYA: "Account created", jours: "days ago",
+      essaiExpire: "expired", essaiEnCours: "in progress", deverouillableApres: "Unlockable after trial", bloqueApresEssai: "Blocked after trial unless free access",
+      accesGratuitActive: "Free access enabled", accesGratuitDesactive: "Free access disabled", verrouille: "Locked", deverouille: "Unlocked",
+      niveauAbonnement: "Subscription level (controls ads)", gratuit: "Free", essaiPersonnalise: "Custom trial (days)",
+    },
   },
   "en-US": {
     appTitre: "MY LOGBOOK", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
@@ -285,6 +329,28 @@ const TRADUCTIONS = {
     },
     pointage: { amplitude: "Duty span", pause: "Break", tempsService: "Service time", nuit: "Night (9pm-6am)", enCours: "in progress", pourLaPaie: "for payroll", majore: "20% premium" },
     frais: { casseCroute: "Snack allowance", repasMidi: "Lunch", repasSoir: "Dinner", decouche: "Overnight stay", weekend: "Weekend", france: "France", etranger: "Abroad", totalJour: "Total expenses for the day" },
+    conformite: { semaineDu: "Week of", normale: "Normal", exceptionnelle: "Exceptional", depassement: "Overrun", reposNormal: "Normal rest", reposFractionne: "Compliant split rest", reposInsuffisant: "Insufficient rest", aucuneJournee: "No day logged this week." },
+    planning: { journeePointee: "Day clocked (Clock-in)", aucunStatut: "— (no particular status)", gererCategories: "Manage categories", ajouterCategorie: "Add a category" },
+    banque: { soldeActuel: "Current balance", estimes: "estimated", aVerser: "to be paid for", auDela: "beyond", dejaVerse: "Already paid", verser: "Pay out", ajouterRetrait: "Add a withdrawal (hours used)", ajouterDepot: "Add a manual deposit", heuresDepart: "Starting hours", tauxAssocie: "Associated rate (e.g. 1.5 = 150%)", aucunMouvement: "No transaction recorded." },
+    garage: { immatriculation: "Registration", kilometrageActuel: "Current mileage", entretiens: "Maintenance", depannages: "Breakdowns (flat tire, failure...)", aucunEntretien: "No maintenance recorded.", aucunDepannage: "No breakdown recorded.", aFaire: "Due", prochain: "Next" },
+    carburant: { consoMoyenne: "Avg. consumption", gasoilPeriode: "Diesel (period)", ajouterPlein: "Add a fill-up / charge", aucunPlein: "No fill-up recorded.", detailConso: "Diesel consumption detail", gasoil: "Diesel", adblue: "AdBlue", fiouldRouge: "Red diesel" },
+    rapports: { jour: "Day", semaine: "Week", mois: "Month", annee: "Year", service: "Service", nuit: "Night", frais: "Expenses", aucuneJournee: "No day in this period.", enregistrerPDF: "Save PDF", envoyerEmail: "Send by email", supprimer: "Delete" },
+    paie: {
+      active: "enabled", inactif: "disabled", base: "Base", normal: "normal", equivalence: "Equivalent", majorationNuit: "Night premium (+20%)",
+      auDelaBanque: "Beyond {seuil}h: paid into hours bank (not paid this month)", totalHeures: "Total hours", dontNuit: "Of which night",
+      primesDuMois: "Bonuses this month (included in gross)", aucunePrime: "No bonus added this month.",
+      baseHoraire: "Hourly base (hours + night)", fraisDeRoute: "Travel expenses", primes: "Bonuses", salaireBrutTotal: "Total gross salary",
+      tauxImposition: "Tax rate", cotisationMutuelle: "Health insurance contribution", totalNetEstime: "ESTIMATED TOTAL NET",
+      estimationIndicative: "Indicative estimate — check these rates with your employer/accountant, each contract may differ.",
+      envoyerEstimation: "Send estimate by email",
+    },
+    admin: {
+      comptesTotal: "Total accounts", abonnesActifs: "Active subscribers", rechercherEmail: "Search an email", rafraichir: "Refresh list",
+      chargement: "Loading…", aucunUtilisateur: "No user.", compteCreeIlYA: "Account created", jours: "days ago",
+      essaiExpire: "expired", essaiEnCours: "in progress", deverouillableApres: "Unlockable after trial", bloqueApresEssai: "Blocked after trial unless free access",
+      accesGratuitActive: "Free access enabled", accesGratuitDesactive: "Free access disabled", verrouille: "Locked", deverouille: "Unlocked",
+      niveauAbonnement: "Subscription level (controls ads)", gratuit: "Free", essaiPersonnalise: "Custom trial (days)",
+    },
   },
   de: {
     appTitre: "MEIN FAHRTENBUCH", appTagline: "Yoda 0.1 — FARDOUX Mathieu",
@@ -434,13 +500,12 @@ const emptyEntry = (date) => ({
 function chargerScriptSiAbsent(url, verifierPresence, timeoutMs) {
   return new Promise((resolve, reject) => {
     if (verifierPresence()) { resolve(); return; }
-    const existant = document.querySelector(`script[src="${url}"]`);
-    if (!existant) {
-      const script = document.createElement("script");
-      script.src = url;
-      script.onerror = () => reject(new Error("Échec du chargement : " + url));
-      document.head.appendChild(script);
-    }
+    // On crée toujours une NOUVELLE balise (au lieu de réutiliser une balise existante
+    // qui aurait pu échouer précédemment sans jamais relancer une vraie tentative réseau).
+    const script = document.createElement("script");
+    script.src = url;
+    script.onerror = () => reject(new Error("Échec du chargement : " + url));
+    document.head.appendChild(script);
     const debut = Date.now();
     const intervalle = setInterval(() => {
       if (verifierPresence()) { clearInterval(intervalle); resolve(); }
@@ -1345,8 +1410,31 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   };
 
   const construireRapportPDF = async () => {
-    await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js", () => !!window.jspdf?.jsPDF);
-    await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js", () => !!window.jspdf?.jsPDF?.API?.autoTable);
+    // jsPDF est fourni localement dans l'APK (vendor/) ; sur le site web, si ce
+    // dossier n'a pas été uploadé, on se rabat automatiquement sur internet
+    // (deux CDN de secours au cas où l'un des deux serait bloqué).
+    if (!window.jspdf?.jsPDF) {
+      try {
+        await chargerScriptSiAbsent("vendor/jspdf.umd.min.js", () => !!window.jspdf?.jsPDF, 3000);
+      } catch (e1) {
+        try {
+          await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js", () => !!window.jspdf?.jsPDF, 10000);
+        } catch (e2) {
+          await chargerScriptSiAbsent("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js", () => !!window.jspdf?.jsPDF, 10000);
+        }
+      }
+    }
+    if (!window.jspdf?.jsPDF?.API?.autoTable) {
+      try {
+        await chargerScriptSiAbsent("vendor/jspdf.plugin.autotable.min.js", () => !!window.jspdf?.jsPDF?.API?.autoTable, 3000);
+      } catch (e1) {
+        try {
+          await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js", () => !!window.jspdf?.jsPDF?.API?.autoTable, 10000);
+        } catch (e2) {
+          await chargerScriptSiAbsent("https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js", () => !!window.jspdf?.jsPDF?.API?.autoTable, 10000);
+        }
+      }
+    }
     const jsPDFLib = window.jspdf?.jsPDF;
     if (!jsPDFLib) throw new Error("Bibliothèque PDF indisponible");
 
@@ -1430,7 +1518,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         setSaveStatus("Rapport PDF téléchargé ✓");
       }
     } catch (err) {
-      setSaveStatus("Échec de la génération du rapport PDF — vérifie ta connexion internet");
+      console.error("Erreur génération PDF:", err); setSaveStatus(`Échec du rapport PDF : ${err?.message || "connexion internet requise"}`);
     }
     setTimeout(() => setSaveStatus(""), 3500);
   };
@@ -1452,7 +1540,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         setSaveStatus("Rapport PDF téléchargé — joins-le manuellement à ton e-mail");
       }
     } catch (err) {
-      setSaveStatus("Échec de la génération du rapport PDF — vérifie ta connexion internet");
+      console.error("Erreur génération PDF:", err); setSaveStatus(`Échec du rapport PDF : ${err?.message || "connexion internet requise"}`);
     }
     setTimeout(() => setSaveStatus(""), 3500);
   };
@@ -2132,7 +2220,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         {tab === "conformite" && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2">
-              <span className="text-xs text-slate-400">Semaine du</span>
+              <span className="text-xs text-slate-400">{t("conformite.semaineDu")}</span>
               <input type="date" value={semaineConformite} onChange={(e) => setSemaineConformite(e.target.value)}
                 className="bg-transparent text-center font-mono text-sm font-bold text-slate-100 focus:outline-none" />
               <span className="text-xs text-slate-500 font-mono">
@@ -2151,17 +2239,17 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             )}
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
-              {conformiteSemaine.length === 0 && <p className="p-3 text-xs text-slate-500">Aucune journée pointée cette semaine.</p>}
+              {conformiteSemaine.length === 0 && <p className="p-3 text-xs text-slate-500">{t("conformite.aucuneJournee")}</p>}
               {conformiteSemaine.map((j) => {
                 const classeStyle = {
-                  normale: { label: "Normale", cls: "bg-emerald-900/40 text-emerald-300" },
-                  exceptionnelle: { label: "Exceptionnelle", cls: "bg-amber-900/40 text-amber-300" },
-                  depassement: { label: "Dépassement", cls: "bg-rose-900/40 text-rose-300" },
+                  normale: { label: t("conformite.normale"), cls: "bg-emerald-900/40 text-emerald-300" },
+                  exceptionnelle: { label: t("conformite.exceptionnelle"), cls: "bg-amber-900/40 text-amber-300" },
+                  depassement: { label: t("conformite.depassement"), cls: "bg-rose-900/40 text-rose-300" },
                 }[j.classe];
                 const reposStyle = {
-                  normal: { label: "Repos normal", cls: "text-emerald-400" },
-                  fractionne: { label: "Repos fractionné conforme", cls: "text-sky-400" },
-                  insuffisant: { label: "Repos insuffisant", cls: "text-rose-400" },
+                  normal: { label: t("conformite.reposNormal"), cls: "text-emerald-400" },
+                  fractionne: { label: t("conformite.reposFractionne"), cls: "text-sky-400" },
+                  insuffisant: { label: t("conformite.reposInsuffisant"), cls: "text-rose-400" },
                   inconnu: { label: "—", cls: "text-slate-500" },
                 }[j.reposStatus];
                 return (
@@ -2208,14 +2296,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                   <div key={j.date} className="p-2.5 flex items-center justify-between gap-2">
                     <span className="font-mono text-xs text-slate-300 w-16">{j.date.slice(8, 10)}/{j.date.slice(5, 7)}</span>
                     {j.aTravaille && !planning[j.date] && (
-                      <span className="text-[10px] text-slate-500 flex-1">Journée pointée (Pointage)</span>
+                      <span className="text-[10px] text-slate-500 flex-1">{t("planning.journeePointee")}</span>
                     )}
                     <select
                       value={planning[j.date] || ""}
                       onChange={(e) => definirStatutJour(j.date, e.target.value)}
                       className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs"
                     >
-                      <option value="">— (aucun statut particulier)</option>
+                      <option value="">{t("planning.aucunStatut")}</option>
                       {statuts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                     </select>
                     {statutInfo && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold text-white" style={{ backgroundColor: statutInfo.couleur }}>{statutInfo.label}</span>}
@@ -2225,7 +2313,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Gérer les catégories</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{t("planning.gererCategories")}</span>
               {statuts.map((s) => (
                 <div key={s.id} className="flex items-center gap-2">
                   <input type="color" value={s.couleur} onChange={(e) => modifierStatut(s.id, { couleur: e.target.value })} className="w-8 h-8 rounded bg-transparent" />
@@ -2234,7 +2322,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                   <button onClick={() => supprimerStatut(s.id)} className="text-rose-400"><Trash2 size={14} /></button>
                 </div>
               ))}
-              <button onClick={ajouterStatut} className="flex items-center justify-center gap-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg py-1.5"><Plus size={13} /> Ajouter une catégorie</button>
+              <button onClick={ajouterStatut} className="flex items-center justify-center gap-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg py-1.5"><Plus size={13} /> {t("planning.ajouterCategorie")}</button>
             </div>
           </div>
         )}
@@ -2243,43 +2331,43 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         {tab === "banque" && (
           <div className="flex flex-col gap-3">
             <div className="rounded-xl p-4 text-center" style={{ backgroundColor: theme.accent }}>
-              <div className="text-xs font-semibold text-slate-950 uppercase tracking-wide">Solde actuel</div>
+              <div className="text-xs font-semibold text-slate-950 uppercase tracking-wide">{t("banque.soldeActuel")}</div>
               <div className="text-3xl font-black text-slate-950 font-mono">{soldeBanqueHeures.toFixed(2)} h</div>
-              <div className="text-xs text-slate-900/70">≈ {soldeBanqueValeur.toFixed(2)} € estimés</div>
+              <div className="text-xs text-slate-900/70">≈ {soldeBanqueValeur.toFixed(2)} € {t("banque.estimes")}</div>
             </div>
 
             {pay.bBanque > 0 && (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-2">
                 <span className="text-xs text-slate-300">
-                  {pay.bBanque.toFixed(2)}h à verser pour {payMonth} (au-delà de {rates.seuilBanque}h)
+                  {pay.bBanque.toFixed(2)}h {t("banque.aVerser")} {payMonth} ({t("banque.auDela")} {rates.seuilBanque}h)
                 </span>
                 <button
                   onClick={verserBanqueDuMois}
                   disabled={dejaVerseCeMois}
                   className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${dejaVerseCeMois ? "bg-slate-800 text-slate-500" : "bg-emerald-600 text-white"}`}
                 >
-                  {dejaVerseCeMois ? "Déjà versé" : "Verser"}
+                  {dejaVerseCeMois ? t("banque.dejaVerse") : t("banque.verser")}
                 </button>
               </div>
             )}
 
             <Section titre={t("sections.soldeDepart")}>
-              <ChampNombre label="Heures de départ" value={banque.soldeDepart} onChange={(v) => setBanque((p) => ({ ...p, soldeDepart: v }))} />
-              <ChampNombre label="Taux associé (ex: 1.5 = 150%)" value={banque.tauxDepart} onChange={(v) => setBanque((p) => ({ ...p, tauxDepart: v }))} />
+              <ChampNombre label={t("banque.heuresDepart")} value={banque.soldeDepart} onChange={(v) => setBanque((p) => ({ ...p, soldeDepart: v }))} />
+              <ChampNombre label={t("banque.tauxAssocie")} value={banque.tauxDepart} onChange={(v) => setBanque((p) => ({ ...p, tauxDepart: v }))} />
             </Section>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Ajouter un retrait (heures utilisées)</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{t("banque.ajouterRetrait")}</span>
               <FormMouvementBanque onValider={(h, t, n) => ajouterMouvementBanque("retrait", h, t, n)} defautTaux={pay.tauxHS100} />
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Ajouter un dépôt manuel</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{t("banque.ajouterDepot")}</span>
               <FormMouvementBanque onValider={(h, t, n) => ajouterMouvementBanque("depot", h, t, n)} defautTaux={pay.tauxHS100} />
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
-              {banque.mouvements.length === 0 && <p className="p-3 text-xs text-slate-500">Aucun mouvement enregistré.</p>}
+              {banque.mouvements.length === 0 && <p className="p-3 text-xs text-slate-500">{t("banque.aucunMouvement")}</p>}
               {banque.mouvements.slice().reverse().map((m) => (
                 <div key={m.id} className="p-2.5 flex items-center justify-between text-xs gap-2">
                   <span className="font-mono text-slate-400 w-20">{m.date}</span>
@@ -2298,12 +2386,12 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
           <div className="flex flex-col gap-3">
             <Section titre={t("sections.tracteur")}>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
-                <span>Immatriculation</span>
+                <span>{t("garage.immatriculation")}</span>
                 <input type="text" value={garage.tracteur.immatriculation} onChange={(e) => updateGarageVehicule("tracteur", "immatriculation", e.target.value)}
                   className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="AA-123-BB" />
               </label>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
-                <span>Kilométrage actuel</span>
+                <span>{t("garage.kilometrageActuel")}</span>
                 <input type="number" value={garage.tracteur.kmActuel} onChange={(e) => updateGarageVehicule("tracteur", "kmActuel", e.target.value)}
                   className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="km" />
               </label>
@@ -2311,14 +2399,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
             <Section titre={t("sections.remorque")}>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
-                <span>Immatriculation</span>
+                <span>{t("garage.immatriculation")}</span>
                 <input type="text" value={garage.remorque.immatriculation} onChange={(e) => updateGarageVehicule("remorque", "immatriculation", e.target.value)}
                   className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="AA-123-BB" />
               </label>
             </Section>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Entretiens</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{t("garage.entretiens")}</span>
               <FormEntretien onValider={ajouterEntretien} categories={categoriesEntretien} onAjouterCategorie={ajouterCategorieEntretien} />
               <div className="flex flex-wrap gap-1.5">
                 {categoriesEntretien.map((c) => (
@@ -2329,14 +2417,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                 ))}
               </div>
               <div className="flex flex-col gap-1.5 mt-1">
-                {garage.entretiens.length === 0 && <p className="text-xs text-slate-500">Aucun entretien enregistré.</p>}
+                {garage.entretiens.length === 0 && <p className="text-xs text-slate-500">{t("garage.aucunEntretien")}</p>}
                 {garage.entretiens.slice().reverse().map((e) => {
                   const aFaire = e.prochainKm && garage.tracteur.kmActuel && Number(garage.tracteur.kmActuel) >= Number(e.prochainKm);
                   return (
                     <div key={e.id} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5 gap-2">
                       <span className="font-mono text-slate-400 w-20">{e.date}</span>
                       <span className="flex-1 text-slate-300">{e.type} — {e.km} km</span>
-                      {e.prochainKm && <span className={`px-1.5 py-0.5 rounded-full font-bold ${aFaire ? "bg-rose-900/50 text-rose-300" : "bg-emerald-900/40 text-emerald-300"}`}>{aFaire ? "À faire" : `Prochain : ${e.prochainKm} km`}</span>}
+                      {e.prochainKm && <span className={`px-1.5 py-0.5 rounded-full font-bold ${aFaire ? "bg-rose-900/50 text-rose-300" : "bg-emerald-900/40 text-emerald-300"}`}>{aFaire ? t("garage.aFaire") : `${t("garage.prochain")} : ${e.prochainKm} km`}</span>}
                       <button onClick={() => supprimerEntretien(e.id)} className="text-rose-400"><Trash2 size={13} /></button>
                     </div>
                   );
@@ -2345,7 +2433,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Dépannages (crevaison, panne...)</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{t("garage.depannages")}</span>
               <FormDepannage onValider={ajouterDepannage} categories={categoriesDepannage} onAjouterCategorie={ajouterCategorieDepannage} />
               <div className="flex flex-wrap gap-1.5">
                 {categoriesDepannage.map((c) => (
@@ -2356,7 +2444,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                 ))}
               </div>
               <div className="flex flex-col gap-1.5 mt-1">
-                {garage.depannages.length === 0 && <p className="text-xs text-slate-500">Aucun dépannage enregistré.</p>}
+                {garage.depannages.length === 0 && <p className="text-xs text-slate-500">{t("garage.aucunDepannage")}</p>}
                 {garage.depannages.slice().reverse().map((d) => (
                   <div key={d.id} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5 gap-2">
                     <span className="font-mono text-slate-400 w-20">{d.date}</span>
@@ -2374,20 +2462,20 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         {tab === "carburant" && (
           <div className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-2">
-              <StatCard icon={Fuel} label="Conso. moyenne" value={`${consommationGasoil.consoMoyenne.toFixed(1)} L/100km`} accent="text-amber-400" />
-              <StatCard icon={Fuel} label="Gasoil (période)" value={`${consommationGasoil.totalLitres.toFixed(0)} L`} sub={`${consommationGasoil.totalKm.toFixed(0)} km`} accent="text-emerald-400" />
+              <StatCard icon={Fuel} label={t("carburant.consoMoyenne")} value={`${consommationGasoil.consoMoyenne.toFixed(1)} L/100km`} accent="text-amber-400" />
+              <StatCard icon={Fuel} label={t("carburant.gasoilPeriode")} value={`${consommationGasoil.totalLitres.toFixed(0)} L`} sub={`${consommationGasoil.totalKm.toFixed(0)} km`} accent="text-emerald-400" />
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Ajouter un plein / une charge</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{t("carburant.ajouterPlein")}</span>
               <FormPlein onValider={ajouterPlein} />
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
-              {carburant.pleins.length === 0 && <p className="p-3 text-xs text-slate-500">Aucun plein enregistré.</p>}
+              {carburant.pleins.length === 0 && <p className="p-3 text-xs text-slate-500">{t("carburant.aucunPlein")}</p>}
               {carburant.pleins.slice().reverse().map((p) => {
                 const badge = { gasoil: "bg-amber-900/40 text-amber-300", adblue: "bg-sky-900/40 text-sky-300", fioul_rouge: "bg-rose-900/40 text-rose-300" }[p.type];
-                const labelType = { gasoil: "Gasoil", adblue: "AdBlue", fioul_rouge: "Fioul rouge" }[p.type];
+                const labelType = { gasoil: t("carburant.gasoil"), adblue: t("carburant.adblue"), fioul_rouge: t("carburant.fiouldRouge") }[p.type];
                 return (
                   <div key={p.id} className="p-2.5 flex items-center justify-between text-xs gap-2">
                     <span className="font-mono text-slate-400 w-20">{p.date}</span>
@@ -2402,7 +2490,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
             {consommationGasoil.intervalles.length > 0 && (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-1.5">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Détail consommation gasoil</span>
+                <span className="text-xs uppercase tracking-wide text-slate-400">{t("carburant.detailConso")}</span>
                 {consommationGasoil.intervalles.slice().reverse().map((i, idx) => (
                   <div key={idx} className="flex items-center justify-between text-xs">
                     <span className="font-mono text-slate-400">{i.date}</span>
@@ -2424,19 +2512,19 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                   key={p}
                   onClick={() => setPeriodType(p)}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize ${periodType === p ? "bg-amber-500 text-slate-950" : "text-slate-400"}`}
-                >{p === "annee" ? "Année" : p}</button>
+                >{t(`rapports.${p}`)}</button>
               ))}
             </div>
             <input type="date" value={refDate} onChange={(e) => setRefDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
 
             <div className="flex gap-2 flex-wrap">
-              <StatCard icon={Clock} label="Service" value={fmtHM(periodTotals.serviceMin)} accent="text-emerald-400" />
-              <StatCard icon={Moon} label="Nuit" value={fmtHM(periodTotals.nightMin)} accent="text-indigo-400" />
-              <StatCard icon={Euro} label="Frais" value={`${periodTotals.frais.toFixed(2)} €`} accent="text-amber-400" />
+              <StatCard icon={Clock} label={t("rapports.service")} value={fmtHM(periodTotals.serviceMin)} accent="text-emerald-400" />
+              <StatCard icon={Moon} label={t("rapports.nuit")} value={fmtHM(periodTotals.nightMin)} accent="text-indigo-400" />
+              <StatCard icon={Euro} label={t("rapports.frais")} value={`${periodTotals.frais.toFixed(2)} €`} accent="text-amber-400" />
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
-              {entriesInPeriod.length === 0 && <p className="p-3 text-xs text-slate-500">Aucune journée sur cette période.</p>}
+              {entriesInPeriod.length === 0 && <p className="p-3 text-xs text-slate-500">{t("rapports.aucuneJournee")}</p>}
               {entriesInPeriod.map((e) => {
                 const c = computeEntry(e, rates, nowLocalISO());
                 return (
@@ -2451,9 +2539,9 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="flex gap-2 flex-wrap">
-              <button onClick={enregistrerRapportPDF} className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 bg-amber-500 text-slate-950 rounded-lg py-2 text-xs font-bold"><Save size={14} /> Enregistrer le PDF</button>
-              <button onClick={envoyerRapportPDFParEmail} className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> Envoyer par e-mail</button>
-              <button onClick={supprimerPeriode} className="flex items-center justify-center gap-1.5 bg-rose-900/40 text-rose-300 rounded-lg py-2 px-3 text-xs font-semibold"><Trash2 size={14} /> Supprimer</button>
+              <button onClick={enregistrerRapportPDF} className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 bg-amber-500 text-slate-950 rounded-lg py-2 text-xs font-bold"><Save size={14} /> {t("rapports.enregistrerPDF")}</button>
+              <button onClick={envoyerRapportPDFParEmail} className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> {t("rapports.envoyerEmail")}</button>
+              <button onClick={supprimerPeriode} className="flex items-center justify-center gap-1.5 bg-rose-900/40 text-rose-300 rounded-lg py-2 px-3 text-xs font-semibold"><Trash2 size={14} /> {t("rapports.supprimer")}</button>
             </div>
             <p className="text-[10px] text-slate-500 -mt-1">"Enregistrer" range le PDF dans le dossier Documents du téléphone. "Envoyer par e-mail" ouvre la fenêtre de partage (choisis ton appli e-mail).</p>
           </div>
@@ -2465,35 +2553,35 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             <input type="month" value={payMonth} onChange={(e) => setPayMonth(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
 
             <div className="flex gap-1.5 flex-wrap">
-              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS25 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 25% {rates.activerHS25 ? "activé" : "désactivé"}</span>
-              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS50 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 50% {rates.activerHS50 ? "activé" : "désactivé"}</span>
-              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS100 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 100% {rates.activerHS100 ? "activé" : "désactivé"}</span>
+              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS25 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 25% {rates.activerHS25 ? t("paie.active") : t("paie.inactif")}</span>
+              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS50 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 50% {rates.activerHS50 ? t("paie.active") : t("paie.inactif")}</span>
+              <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${rates.activerHS100 ? "bg-emerald-900/40 text-emerald-300" : "bg-slate-800 text-slate-500"}`}>HS 100% {rates.activerHS100 ? t("paie.active") : t("paie.inactif")}</span>
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-              <LignePaie titre={`Base 0–${rates.seuil1}h (normal)`} heures={pay.b0} taux={rates.tauxHoraire} montant={pay.payNormal} />
-              <LignePaie titre={`Équivalence 25% (${rates.seuil1}–${rates.seuil2}h)`} heures={pay.b1} taux={rates.tauxHoraire * 1.25} montant={pay.payEquiv} />
+              <LignePaie titre={`${t("paie.base")} 0–${rates.seuil1}h (${t("paie.normal")})`} heures={pay.b0} taux={rates.tauxHoraire} montant={pay.payNormal} />
+              <LignePaie titre={`${t("paie.equivalence")} 25% (${rates.seuil1}–${rates.seuil2}h)`} heures={pay.b1} taux={rates.tauxHoraire * 1.25} montant={pay.payEquiv} />
               <LignePaie titre={`HS ${(pay.tauxHS25 * 100).toFixed(0)}% (${rates.seuil2}–${rates.seuil3}h)`} heures={pay.b2} taux={rates.tauxHoraire * pay.tauxHS25} montant={pay.payHS25} />
               <LignePaie titre={`HS ${(pay.tauxHS50 * 100).toFixed(0)}% (${rates.seuil3}–${rates.seuil4}h)`} heures={pay.b3} taux={rates.tauxHoraire * pay.tauxHS50} montant={pay.payHS50} />
               <LignePaie titre={`HS ${(pay.tauxHS100 * 100).toFixed(0)}% (${rates.seuil4}–${rates.seuilBanque}h)`} heures={pay.b4} taux={rates.tauxHoraire * pay.tauxHS100} montant={pay.payHS100} />
-              <LignePaie titre="Majoration de nuit (+20%)" heures={pay.nightH} taux={rates.tauxHoraire * 0.20} montant={pay.payNight} />
+              <LignePaie titre={t("paie.majorationNuit")} heures={pay.nightH} taux={rates.tauxHoraire * 0.20} montant={pay.payNight} />
             </div>
 
             {pay.bBanque > 0 && (
               <div className="bg-indigo-900/30 border border-indigo-700 rounded-xl p-3 flex items-center justify-between text-xs">
-                <span className="text-indigo-300">Au-delà de {rates.seuilBanque}h : versé en banque d'heures (non payé ce mois)</span>
+                <span className="text-indigo-300">{t("paie.auDelaBanque", { seuil: rates.seuilBanque })}</span>
                 <span className="font-mono font-bold text-indigo-300">{pay.bBanque.toFixed(2)} h</span>
               </div>
             )}
 
             <div className="grid grid-cols-2 gap-2">
-              <StatCard icon={Clock} label="Total heures" value={`${pay.H.toFixed(2)} h`} accent="text-emerald-400" />
-              <StatCard icon={Moon} label="Dont nuit" value={`${pay.nightH.toFixed(2)} h`} accent="text-indigo-400" />
+              <StatCard icon={Clock} label={t("paie.totalHeures")} value={`${pay.H.toFixed(2)} h`} accent="text-emerald-400" />
+              <StatCard icon={Moon} label={t("paie.dontNuit")} value={`${pay.nightH.toFixed(2)} h`} accent="text-indigo-400" />
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Primes du mois (incluses dans le brut)</span>
-              {primesDuMois.length === 0 && <p className="text-xs text-slate-500">Aucune prime ajoutée ce mois-ci.</p>}
+              <span className="text-xs uppercase tracking-wide text-slate-400">{t("paie.primesDuMois")}</span>
+              {primesDuMois.length === 0 && <p className="text-xs text-slate-500">{t("paie.aucunePrime")}</p>}
               {primesDuMois.map((p) => (
                 <div key={p.id} className="flex items-center justify-between text-sm bg-slate-800/60 rounded-lg px-3 py-2">
                   <span>{p.label}</span>
@@ -2507,19 +2595,19 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-1.5 text-sm">
-              <Ligne label="Base horaire (heures + nuit)" value={`${pay.salaireBaseHoraire.toFixed(2)} €`} />
-              <Ligne label="Frais de route" value={`${pay.frais.toFixed(2)} €`} />
-              <Ligne label="Primes" value={`${pay.sommePrimes.toFixed(2)} €`} />
+              <Ligne label={t("paie.baseHoraire")} value={`${pay.salaireBaseHoraire.toFixed(2)} €`} />
+              <Ligne label={t("paie.fraisDeRoute")} value={`${pay.frais.toFixed(2)} €`} />
+              <Ligne label={t("paie.primes")} value={`${pay.sommePrimes.toFixed(2)} €`} />
               <div className="border-t border-slate-700 my-1" />
-              <Ligne label={<b>Salaire brut total</b>} value={<b>{pay.salaireBrut.toFixed(2)} €</b>} />
-              <Ligne label={`Taux d'imposition (${pay.tauxImposition}%)`} value={`− ${(pay.salaireBrut * pay.tauxImposition / 100).toFixed(2)} €`} />
-              <Ligne label="Cotisation mutuelle" value={`− ${pay.mutuelle.toFixed(2)} €`} />
+              <Ligne label={<b>{t("paie.salaireBrutTotal")}</b>} value={<b>{pay.salaireBrut.toFixed(2)} €</b>} />
+              <Ligne label={`${t("paie.tauxImposition")} (${pay.tauxImposition}%)`} value={`− ${(pay.salaireBrut * pay.tauxImposition / 100).toFixed(2)} €`} />
+              <Ligne label={t("paie.cotisationMutuelle")} value={`− ${pay.mutuelle.toFixed(2)} €`} />
               <div className="border-t border-slate-700 my-1" />
-              <Ligne label={<b>TOTAL NET ESTIMÉ</b>} value={<b className="text-amber-400 text-lg">{pay.netTotal.toFixed(2)} €</b>} />
-              <p className="text-[10px] text-slate-500 mt-1 flex items-start gap-1"><AlertCircle size={12} className="mt-0.5 shrink-0" /> Estimation indicative — vérifie ces taux avec ton employeur/comptable, chaque contrat peut différer.</p>
+              <Ligne label={<b>{t("paie.totalNetEstime")}</b>} value={<b className="text-amber-400 text-lg">{pay.netTotal.toFixed(2)} €</b>} />
+              <p className="text-[10px] text-slate-500 mt-1 flex items-start gap-1"><AlertCircle size={12} className="mt-0.5 shrink-0" /> {t("paie.estimationIndicative")}</p>
             </div>
 
-            <button onClick={envoyerPaieEmail} className="flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> Envoyer l'estimation par e-mail</button>
+            <button onClick={envoyerPaieEmail} className="flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> {t("paie.envoyerEstimation")}</button>
           </div>
         )}
 
@@ -3234,6 +3322,8 @@ function EcranMessage({ titre, message, action }) {
 }
 
 function PanneauAdmin() {
+  const langue = (() => { try { return localStorage.getItem("carnet-langue") || "fr"; } catch (e) { return "fr"; } })();
+  const t = (cle, params) => traduire(langue, cle, params);
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [filtre, setFiltre] = useState("");
@@ -3291,11 +3381,11 @@ function PanneauAdmin() {
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
-          <span className="text-[11px] text-slate-400">Comptes total</span>
+          <span className="text-[11px] text-slate-400">{t("admin.comptesTotal")}</span>
           <span className="font-mono font-bold text-lg text-slate-100">{utilisateurs.length}</span>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
-          <span className="text-[11px] text-slate-400">Abonnés actifs</span>
+          <span className="text-[11px] text-slate-400">{t("admin.abonnesActifs")}</span>
           <span className="font-mono font-bold text-lg text-emerald-400">{nbAbonnes}</span>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col">
@@ -3314,13 +3404,13 @@ function PanneauAdmin() {
         </div>
       </div>
 
-      <input type="text" placeholder="Rechercher un e-mail" value={filtre} onChange={(e) => setFiltre(e.target.value)}
+      <input type="text" placeholder={t("admin.rechercherEmail")} value={filtre} onChange={(e) => setFiltre(e.target.value)}
         className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
-      <button onClick={charger} className="text-xs text-slate-400 underline self-start">Rafraîchir la liste</button>
+      <button onClick={charger} className="text-xs text-slate-400 underline self-start">{t("admin.rafraichir")}</button>
 
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
-        {chargement && <p className="p-3 text-xs text-slate-500">Chargement…</p>}
-        {!chargement && utilisateursFiltres.length === 0 && <p className="p-3 text-xs text-slate-500">Aucun utilisateur.</p>}
+        {chargement && <p className="p-3 text-xs text-slate-500">{t("admin.chargement")}</p>}
+        {!chargement && utilisateursFiltres.length === 0 && <p className="p-3 text-xs text-slate-500">{t("admin.aucunUtilisateur")}</p>}
         {utilisateursFiltres.map((u) => {
           const jours = Math.floor(joursDepuis(u.createdAt));
           const dureeApplicable = u.dureeEssaiPersonnalisee ?? dureeEssaiGlobale;
