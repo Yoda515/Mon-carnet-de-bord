@@ -878,6 +878,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   const [loaded, setLoaded] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
   const [geoStatus, setGeoStatus] = useState("");
+  const [geoPermissionRefusee, setGeoPermissionRefusee] = useState(false);
+
+  const ouvrirParametresApp = () => {
+    try {
+      // Astuce : les WebView Android interceptent les URI "intent:" et ouvrent l'écran système visé
+      window.location.href = "intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;package=com.fardoux.carnetdebord;end";
+    } catch (err) { /* si indisponible (ex: web), ignore silencieusement */ }
+  };
 
   const [periodType, setPeriodType] = useState("semaine");
   const [refDate, setRefDate] = useState(todayISODate());
@@ -1239,6 +1247,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
   const geolocaliser = async (target) => {
     setGeoStatus("Localisation en cours…");
+    setGeoPermissionRefusee(false);
     try {
       let latitude, longitude;
       const CapGeo = window.Capacitor?.Plugins?.Geolocation;
@@ -1250,8 +1259,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
           if (etat.location !== "granted" && etat.coarseLocation !== "granted") {
             const demande = await CapGeo.requestPermissions();
             if (demande.location !== "granted" && demande.coarseLocation !== "granted") {
-              setGeoStatus("Localisation refusée dans les paramètres du téléphone. Autorise-la manuellement dans Paramètres → Applications → Mon carnet de bord → Autorisations, ou saisis le lieu à la main.");
-              setTimeout(() => setGeoStatus(""), 6000);
+              setGeoStatus("Localisation refusée. Autorise-la manuellement, ou saisis le lieu à la main.");
+              setGeoPermissionRefusee(true);
               return;
             }
           }
@@ -1283,7 +1292,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     } catch (err) {
       console.error("Erreur géolocalisation:", err?.code, err?.message, err);
       setGeoStatus(`Position refusée ou indisponible (${err?.message || "erreur inconnue"}). Vérifie que la localisation est activée sur le téléphone, ou saisis le lieu manuellement.`);
-      setTimeout(() => setGeoStatus(""), 3500);
+      setGeoPermissionRefusee(true);
     }
   };
 
@@ -1335,43 +1344,17 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     setEntries((prev) => prev.filter((e) => !idsToRemove.has(e.id)));
   };
 
-  const envoyerRapportEmail = () => {
-    const label = { jour: "Jour", semaine: "Semaine", mois: "Mois", annee: "Année" }[periodType];
-    const subject = `Carnet de bord — Rapport (${label}) — ${refDate}`;
-    let body = `Rapport ${label} — référence ${refDate}\n\n`;
-    body += `Temps de service total : ${fmtHM(periodTotals.serviceMin)}\n`;
-    body += `Amplitude totale : ${fmtHM(periodTotals.amplitudeMin)}\n`;
-    body += `Heures de nuit : ${fmtHM(periodTotals.nightMin)}\n`;
-    body += `Frais de route : ${periodTotals.frais.toFixed(2)} €\n\n`;
-    body += `Détail par journée :\n`;
-    const liveNowStr = nowLocalISO();
-    entriesInPeriod.forEach((e) => {
-      const c = computeEntry(e, rates, liveNowStr);
-      body += `- ${e.date} : service ${fmtHM(c.serviceMin)}, nuit ${fmtHM(c.nightWorkedMin)}, frais ${c.frais.toFixed(2)} €\n`;
-    });
-    body += `\nMon carnet de bord — Yoda 0.1 — FARDOUX Mathieu`;
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  };
-
-  const genererRapportPDF = async () => {
-    setSaveStatus("Préparation du rapport…");
-    try {
-      await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js", () => !!window.jspdf?.jsPDF);
-      await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js", () => !!window.jspdf?.jsPDF?.API?.autoTable);
-    } catch (err) {
-      setSaveStatus("Génération PDF impossible : vérifie ta connexion internet et réessaie");
-      setTimeout(() => setSaveStatus(""), 4000);
-      return;
-    }
+  const construireRapportPDF = async () => {
+    await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js", () => !!window.jspdf?.jsPDF);
+    await chargerScriptSiAbsent("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js", () => !!window.jspdf?.jsPDF?.API?.autoTable);
     const jsPDFLib = window.jspdf?.jsPDF;
-    if (!jsPDFLib) { setSaveStatus("Génération PDF indisponible"); setTimeout(() => setSaveStatus(""), 3000); return; }
+    if (!jsPDFLib) throw new Error("Bibliothèque PDF indisponible");
 
     const label = { jour: "Jour", semaine: "Semaine", mois: "Mois", annee: "Année" }[periodType];
     const doc = new jsPDFLib({ unit: "mm", format: "a4" });
     const pageW = doc.internal.pageSize.getWidth();
     const NAVY = [15, 23, 42], AMBER = [245, 158, 11], SLATE = [71, 85, 105], LIGHT = [241, 245, 249];
 
-    // En-tête
     doc.setFillColor(...NAVY); doc.rect(0, 0, pageW, 28, "F");
     doc.setTextColor(...AMBER); doc.setFont("helvetica", "bold"); doc.setFontSize(16);
     doc.text("MON CARNET DE BORD", 14, 13);
@@ -1382,7 +1365,6 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(200, 200, 210);
     doc.text(`Référence : ${refDate}`, pageW - 14, 20, { align: "right" });
 
-    // Bloc résumé
     let y = 38;
     doc.setTextColor(...NAVY); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
     doc.text("Résumé de la période", 14, y);
@@ -1400,7 +1382,6 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       body: resume, margin: { left: 14, right: 14 },
     });
 
-    // Tableau détaillé
     y = doc.lastAutoTable.finalY + 10;
     doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...NAVY);
     doc.text("Détail journalier", 14, y);
@@ -1422,7 +1403,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       bodyStyles: { fontSize: 8.5, textColor: [30, 41, 59] },
       alternateRowStyles: { fillColor: LIGHT },
       margin: { left: 14, right: 14 },
-      didDrawPage: (data) => {
+      didDrawPage: () => {
         const pageH = doc.internal.pageSize.getHeight();
         doc.setFontSize(8); doc.setTextColor(...SLATE);
         doc.text("Mon carnet de bord — Yoda 0.1 — FARDOUX Mathieu", 14, pageH - 8);
@@ -1431,23 +1412,67 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     });
 
     const nomFichier = `rapport-${periodType}-${refDate}.pdf`;
+    return { doc, nomFichier };
+  };
 
+  // Enregistre le PDF directement dans le dossier Documents du téléphone (pas de fenêtre de partage)
+  const enregistrerRapportPDF = async () => {
+    setSaveStatus("Génération du rapport…");
     try {
+      const { doc, nomFichier } = await construireRapportPDF();
       const CapFS = window.Capacitor?.Plugins?.Filesystem;
-      const CapShare = window.Capacitor?.Plugins?.Share;
-      if (CapFS && CapShare) {
+      if (CapFS) {
         const base64 = doc.output("datauristring").split(",")[1];
-        const res = await CapFS.writeFile({ path: nomFichier, data: base64, directory: "DOCUMENTS" });
-        await CapShare.share({ title: "Rapport Mon carnet de bord", url: res.uri, dialogTitle: "Partager le rapport" });
-        setSaveStatus("Rapport PDF partagé ✓");
+        await CapFS.writeFile({ path: nomFichier, data: base64, directory: "DOCUMENTS" });
+        setSaveStatus(`Enregistré dans Documents/${nomFichier} ✓`);
       } else {
         doc.save(nomFichier); // repli navigateur : téléchargement direct
         setSaveStatus("Rapport PDF téléchargé ✓");
       }
     } catch (err) {
-      setSaveStatus("Échec de la génération du rapport PDF");
+      setSaveStatus("Échec de la génération du rapport PDF — vérifie ta connexion internet");
     }
-    setTimeout(() => setSaveStatus(""), 2500);
+    setTimeout(() => setSaveStatus(""), 3500);
+  };
+
+  // Ouvre la fenêtre de partage native (choix de l'application : e-mail, Drive, WhatsApp...)
+  const envoyerRapportPDFParEmail = async () => {
+    setSaveStatus("Génération du rapport…");
+    try {
+      const { doc, nomFichier } = await construireRapportPDF();
+      const CapFS = window.Capacitor?.Plugins?.Filesystem;
+      const CapShare = window.Capacitor?.Plugins?.Share;
+      if (CapFS && CapShare) {
+        const base64 = doc.output("datauristring").split(",")[1];
+        const res = await CapFS.writeFile({ path: nomFichier, data: base64, directory: "DOCUMENTS" });
+        await CapShare.share({ title: "Rapport Mon carnet de bord", text: "Voici mon rapport de temps de travail.", url: res.uri, dialogTitle: "Envoyer le rapport par e-mail ou autre" });
+        setSaveStatus("Fenêtre de partage ouverte ✓");
+      } else {
+        doc.save(nomFichier);
+        setSaveStatus("Rapport PDF téléchargé — joins-le manuellement à ton e-mail");
+      }
+    } catch (err) {
+      setSaveStatus("Échec de la génération du rapport PDF — vérifie ta connexion internet");
+    }
+    setTimeout(() => setSaveStatus(""), 3500);
+  };
+
+  const envoyerRapportEmail = () => {
+    const label = { jour: "Jour", semaine: "Semaine", mois: "Mois", annee: "Année" }[periodType];
+    const subject = `Carnet de bord — Rapport (${label}) — ${refDate}`;
+    let body = `Rapport ${label} — référence ${refDate}\n\n`;
+    body += `Temps de service total : ${fmtHM(periodTotals.serviceMin)}\n`;
+    body += `Amplitude totale : ${fmtHM(periodTotals.amplitudeMin)}\n`;
+    body += `Heures de nuit : ${fmtHM(periodTotals.nightMin)}\n`;
+    body += `Frais de route : ${periodTotals.frais.toFixed(2)} €\n\n`;
+    body += `Détail par journée :\n`;
+    const liveNowStr = nowLocalISO();
+    entriesInPeriod.forEach((e) => {
+      const c = computeEntry(e, rates, liveNowStr);
+      body += `- ${e.date} : service ${fmtHM(c.serviceMin)}, nuit ${fmtHM(c.nightWorkedMin)}, frais ${c.frais.toFixed(2)} €\n`;
+    });
+    body += `\nMon carnet de bord — Yoda 0.1 — FARDOUX Mathieu`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   /* ---------- Paie mensuelle ---------- */
@@ -2065,7 +2090,16 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               )}
             </div>
 
-            {geoStatus && <div className="text-xs text-amber-400 flex items-center gap-1"><MapPin size={12} /> {geoStatus}</div>}
+            {geoStatus && (
+              <div className="flex flex-col gap-1.5">
+                <div className="text-xs text-amber-400 flex items-center gap-1"><MapPin size={12} /> {geoStatus}</div>
+                {geoPermissionRefusee && (
+                  <button onClick={ouvrirParametresApp} className="self-start flex items-center gap-1.5 bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg px-3 py-1.5">
+                    <Settings size={13} /> Ouvrir les paramètres de l'app
+                  </button>
+                )}
+              </div>
+            )}
 
             {rates.modeVRPActif && (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-3">
@@ -2416,11 +2450,12 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               })}
             </div>
 
-            <div className="flex gap-2">
-              <button onClick={genererRapportPDF} className="flex-1 flex items-center justify-center gap-1.5 bg-amber-500 text-slate-950 rounded-lg py-2 text-xs font-bold"><FileText size={14} /> Rapport PDF</button>
-              <button onClick={envoyerRapportEmail} className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> E-mail</button>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={enregistrerRapportPDF} className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 bg-amber-500 text-slate-950 rounded-lg py-2 text-xs font-bold"><Save size={14} /> Enregistrer le PDF</button>
+              <button onClick={envoyerRapportPDFParEmail} className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 bg-sky-600 rounded-lg py-2 text-xs font-semibold"><Mail size={14} /> Envoyer par e-mail</button>
               <button onClick={supprimerPeriode} className="flex items-center justify-center gap-1.5 bg-rose-900/40 text-rose-300 rounded-lg py-2 px-3 text-xs font-semibold"><Trash2 size={14} /> Supprimer</button>
             </div>
+            <p className="text-[10px] text-slate-500 -mt-1">"Enregistrer" range le PDF dans le dossier Documents du téléphone. "Envoyer par e-mail" ouvre la fenêtre de partage (choisis ton appli e-mail).</p>
           </div>
         )}
 
