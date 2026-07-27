@@ -159,6 +159,8 @@ const DEFAULT_RATES = {
   tauxHoraire: 12.00,
   casseCroute: 8.87,
   casseCrouteEtr: 10.46,
+  dejeuner: 8.87,
+  dejeunerEtr: 10.46,
   repas: 16.36,
   repasEtr: 19.30,
   decouche: 27.08,
@@ -192,11 +194,20 @@ const DEFAULT_RATES = {
   routierAmplitudeNuit: 13,
   routierServiceJour: 12,   // plafond de temps de service (départ en journée) — jamais dépassable
   routierServiceNuit: 10,   // plafond de temps de service (départ de nuit) — jamais dépassable
-  // Mode VRP / Commercial — frais spécifiques (péage, parking, hôtel)
-  modeVRPActif: false,
+  // Profil professionnel — détermine les règles d'amplitude/service et les frais applicables
+  // "routier" | "commercial" | "livreur" | "pilote"
+  profilProfessionnel: "routier",
+  modeVRPActif: false, // conservé pour compatibilité, piloté automatiquement par profilProfessionnel désormais
   vrpAlerteSeuilMinutes: 15, // seuil d'alerte générique sur le temps de service (indépendant du mode routier)
   alerteMinutes: 15,
 };
+
+const PROFILS_PROFESSIONNELS = [
+  { id: "routier", label: "🚛 Routier", description: "Amplitude et temps de service réglementaires (13-15h), coupures, frais route" },
+  { id: "livreur", label: "📦 Livreur -3,5T", description: "Régime allégé (véhicule léger), sans les règles routier lourd" },
+  { id: "pilote", label: "🚗 Voiture pilote", description: "Accompagnement de convois, manutention chronométrée, suivi simplifié" },
+];
+
 
 const DEFAULT_THEME = {
   accent: "#f59e0b",
@@ -480,6 +491,7 @@ const DEFAULT_GARAGE = {
 };
 
 const DEFAULT_CATEGORIES_ENTRETIEN = ["Vidange", "Freins", "Pneus", "Révision", "Courroie", "Autre"];
+const DEFAULT_CATEGORIES_MANUTENTION = ["Chargement", "Déchargement", "Attente client", "Accompagnement convoi", "Balisage/signalisation", "Autre"];
 const DEFAULT_CATEGORIES_DEPANNAGE = ["Crevaison", "Panne", "Accident", "Autre"];
 
 const DEFAULT_CARBURANT = { pleins: [] };
@@ -500,7 +512,9 @@ const emptyEntry = (date) => ({
   finServiceLieu: { lat: null, lon: null, adresse: "" },
   pauses: [],
   pauseManuelle: "",
+  manutentions: [],
   casseCroute: { actif: false, etranger: false },
+  dejeuner: { actif: false, etranger: false },
   repasMidi: { actif: false, etranger: false },
   repasSoir: { actif: false, etranger: false },
   decouche: { actif: false, etranger: false, note: 0, lat: null, lon: null, lieu: "", adresse: "" },
@@ -728,11 +742,12 @@ function computeEntry(entry, rates, liveNow) {
 
   // Frais de route du jour
   let frais = 0;
-  if (entry.casseCroute.actif) frais += entry.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute;
-  if (entry.repasMidi.actif) frais += entry.repasMidi.etranger ? rates.repasEtr : rates.repas;
-  if (entry.repasSoir.actif) frais += entry.repasSoir.etranger ? rates.repasEtr : rates.repas;
-  if (entry.decouche.actif) frais += entry.decouche.etranger ? rates.decoucheEtr : rates.decouche;
-  if (entry.weekend.actif) frais += Number(entry.weekend.montant) || 0;
+  if (entry.casseCroute?.actif) frais += entry.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute;
+  if (entry.dejeuner?.actif) frais += entry.dejeuner.etranger ? rates.dejeunerEtr : rates.dejeuner;
+  if (entry.repasMidi?.actif) frais += entry.repasMidi.etranger ? rates.repasEtr : rates.repas;
+  if (entry.repasSoir?.actif) frais += entry.repasSoir.etranger ? rates.repasEtr : rates.repas;
+  if (entry.decouche?.actif) frais += entry.decouche.etranger ? rates.decoucheEtr : rates.decouche;
+  if (entry.weekend?.actif) frais += Number(entry.weekend.montant) || 0;
   frais += Number(entry.peage) || 0;
   frais += Number(entry.parking) || 0;
   frais += Number(entry.hotel) || 0;
@@ -780,7 +795,10 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
   const bBanque = Math.max(0, H - seuilBanque); // au-delà du plafond payé : versé en banque, non payé ce mois
 
   const payNormal = b0 * rates.tauxHoraire;
-  const payEquiv = b1 * rates.tauxHoraire * 1.25;
+  // L'heure d'équivalence à 125% est une spécificité de la convention "Routier" —
+  // pour les autres profils (Commercial, Livreur -3,5T, Voiture pilote), ces heures
+  // sont simplement payées au taux normal, sans palier d'équivalence.
+  const payEquiv = rates.profilProfessionnel === "routier" ? b1 * rates.tauxHoraire * 1.25 : b1 * rates.tauxHoraire;
   const payHS25 = b2 * rates.tauxHoraire * tauxHS25;
   const payHS50 = b3 * rates.tauxHoraire * tauxHS50;
   const payHS100 = b4 * rates.tauxHoraire * tauxHS100;
@@ -981,6 +999,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   const [statuts, setStatuts] = useState(DEFAULT_STATUTS);
   const [garage, setGarage] = useState(DEFAULT_GARAGE);
   const [categoriesEntretien, setCategoriesEntretien] = useState(DEFAULT_CATEGORIES_ENTRETIEN);
+  const [categoriesManutention, setCategoriesManutention] = useState(DEFAULT_CATEGORIES_MANUTENTION);
   const [categoriesDepannage, setCategoriesDepannage] = useState(DEFAULT_CATEGORIES_DEPANNAGE);
   const [carburant, setCarburant] = useState(DEFAULT_CARBURANT);
   const [theme, setTheme] = useState(DEFAULT_THEME);
@@ -1191,7 +1210,11 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         if (donneesCloud && donneesCloud[cle] !== undefined) return donneesCloud[cle];
         try { const v = storage.get(ns(cle.replace(/([A-Z])/g, "-$1").toLowerCase())); return v ?? defaut; } catch (err) { return defaut; }
       };
-      setEntries(lire("entries", []));
+      // Fusionne CHAQUE journée chargée avec la structure par défaut (emptyEntry) : garantit
+      // que tous les champs existent, même pour des journées enregistrées avant l'ajout de
+      // nouvelles fonctionnalités (ex: dejeuner, finServiceLieu) — évite les plantages.
+      const entriesBrutes = lire("entries", []);
+      setEntries(entriesBrutes.map((e) => ({ ...emptyEntry(e.date), ...e })));
       setRates({ ...DEFAULT_RATES, ...lire("rates", {}) });
       setBanque(lire("banque", { soldeDepart: 0, tauxDepart: 1.5, mouvements: [] }));
       setPrimes(lire("primes", {}));
@@ -1199,6 +1222,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       setStatuts(lire("statuts", DEFAULT_STATUTS));
       setGarage({ ...DEFAULT_GARAGE, ...lire("garage", {}) });
       setCategoriesEntretien(lire("categoriesEntretien", DEFAULT_CATEGORIES_ENTRETIEN));
+      setCategoriesManutention(lire("categoriesManutention", DEFAULT_CATEGORIES_MANUTENTION));
       setCategoriesDepannage(lire("categoriesDepannage", DEFAULT_CATEGORIES_DEPANNAGE));
       setCarburant(lire("carburant", DEFAULT_CARBURANT));
       setTheme({ ...DEFAULT_THEME, ...lire("theme", {}) });
@@ -1210,7 +1234,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   const saveAll = useCallback(async (nextEntries, nextRates) => {
     const donnees = {
       entries: nextEntries ?? entries, rates: nextRates ?? rates, banque, primes, planning, statuts, garage,
-      categoriesEntretien, categoriesDepannage, carburant, theme,
+      categoriesEntretien, categoriesDepannage, categoriesManutention, carburant, theme,
     };
     try {
       storage.set(ns("entries"), donnees.entries);
@@ -1222,6 +1246,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       storage.set(ns("garage"), garage);
       storage.set(ns("categories-entretien"), categoriesEntretien);
       storage.set(ns("categories-depannage"), categoriesDepannage);
+      storage.set(ns("categoriesManutention"), categoriesManutention);
       storage.set(ns("carburant"), carburant);
       storage.set(ns("theme"), theme);
       storage.set(ns("publicites"), publicites);
@@ -1241,14 +1266,14 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       setSaveStatus("Échec de l'enregistrement");
       setTimeout(() => setSaveStatus(""), 2500);
     }
-  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, user]);
+  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, categoriesManutention, carburant, theme, publicites, user]);
 
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => { saveAll(); }, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, carburant, theme, publicites, loaded]);
+  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, categoriesManutention, carburant, theme, publicites, loaded]);
 
   useEffect(() => {
     const annonces = publicites.annonces || [];
@@ -1261,7 +1286,11 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   /* ---------- Gestion de l'entrée du jour sélectionné ---------- */
 
   const currentEntry = useMemo(() => {
-    return entries.find((e) => e.date === selectedDate) || emptyEntry(selectedDate);
+    const trouve = entries.find((e) => e.date === selectedDate);
+    // Fusionne systématiquement avec la structure par défaut : garantit que les champs
+    // ajoutés lors de mises à jour ultérieures (ex: dejeuner, finServiceLieu) existent
+    // toujours, même pour des journées enregistrées avant leur introduction.
+    return trouve ? { ...emptyEntry(selectedDate), ...trouve } : emptyEntry(selectedDate);
   }, [entries, selectedDate]);
 
   const updateEntry = useCallback((patch) => {
@@ -1280,7 +1309,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   };
 
   const calc = useMemo(() => computeEntry(currentEntry, rates, nowLocalISO()), [currentEntry, rates, liveTick]);
-  const routier = useMemo(() => computeModeRoutier(currentEntry, rates, nowLocalISO(), calc.serviceMin, calc.pauseMin), [currentEntry, rates, calc.serviceMin, calc.pauseMin, liveTick]);
+  const routier = useMemo(() => (rates.profilProfessionnel === "routier" ? computeModeRoutier(currentEntry, rates, nowLocalISO(), calc.serviceMin, calc.pauseMin) : null), [currentEntry, rates, calc.serviceMin, calc.pauseMin, liveTick]);
 
   // Coupure de repos : temps écoulé entre la fin de service de la veille (ou du dernier jour travaillé)
   // et le début de service du jour sélectionné (ou l'instant présent si le service n'a pas encore commencé).
@@ -1319,6 +1348,32 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     updateEntry({ pauses });
   };
   const pauseEnCours = currentEntry.pauses.length > 0 && !currentEntry.pauses[currentEntry.pauses.length - 1].fin;
+
+  // Manutention (Voiture Pilote) : périodes chronométrées incluses dans le temps de service,
+  // avec catégorie et description de la tâche — comme pour les catégories du Planning.
+  const debuterManutention = () => {
+    const manutentions = [...(currentEntry.manutentions || [])];
+    if (manutentions.length && !manutentions[manutentions.length - 1].fin) return; // déjà en cours
+    manutentions.push({ id: "manut-" + Math.random().toString(36).slice(2, 8), debut: nowLocalISO(), fin: "", categorie: categoriesManutention[0] || "Autre", description: "" });
+    updateEntry({ manutentions });
+  };
+  const terminerManutention = () => {
+    const manutentions = [...(currentEntry.manutentions || [])];
+    const idx = manutentions.length - 1;
+    if (idx < 0 || manutentions[idx].fin) return;
+    manutentions[idx] = { ...manutentions[idx], fin: nowLocalISO() };
+    updateEntry({ manutentions });
+  };
+  const manutentionEnCours = (currentEntry.manutentions || []).length > 0 && !currentEntry.manutentions[currentEntry.manutentions.length - 1].fin;
+  const updateManutention = (idx, field, val) => {
+    const manutentions = [...(currentEntry.manutentions || [])];
+    manutentions[idx] = { ...manutentions[idx], [field]: val };
+    updateEntry({ manutentions });
+  };
+  const supprimerManutention = (idx) => {
+    const manutentions = (currentEntry.manutentions || []).filter((_, i) => i !== idx);
+    updateEntry({ manutentions });
+  };
 
   const updatePause = (idx, field, val) => {
     const pauses = [...currentEntry.pauses];
@@ -1845,7 +1900,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     reader.onload = (e) => {
       try {
         const d = JSON.parse(e.target.result);
-        if (d.entries) setEntries(d.entries);
+        if (d.entries) setEntries(d.entries.map((e) => ({ ...emptyEntry(e.date), ...e })));
         if (d.rates) setRates({ ...DEFAULT_RATES, ...d.rates });
         if (d.banque) setBanque(d.banque);
         if (d.planning) setPlanning(d.planning);
@@ -1998,7 +2053,38 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               <TimeButton icon={Square} label={t("champs.finService")} onClick={terminerService} active={!!currentEntry.finService} color="bg-rose-600" />
               <TimeButton icon={Coffee} label={t("champs.debutPause")} onClick={debuterPause} active={pauseEnCours} color="bg-sky-600" />
               <TimeButton icon={Coffee} label={t("champs.finPause")} onClick={terminerPause} active={false} color="bg-indigo-600" />
+              {rates.profilProfessionnel === "pilote" && (
+                <>
+                  <TimeButton icon={Wrench} label="Début manutention" onClick={debuterManutention} active={manutentionEnCours} color="bg-amber-600" />
+                  <TimeButton icon={Wrench} label="Fin manutention" onClick={terminerManutention} active={false} color="bg-orange-700" />
+                </>
+              )}
             </div>
+
+            {rates.profilProfessionnel === "pilote" && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Manutentions de la journée (incluses dans le temps de service)</span>
+                {(currentEntry.manutentions || []).length === 0 && <p className="text-xs text-slate-500">Aucune manutention enregistrée.</p>}
+                {(currentEntry.manutentions || []).map((m, idx) => (
+                  <div key={m.id} className="bg-slate-800/60 rounded-lg p-2 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-mono text-slate-300">
+                        {m.debut ? m.debut.slice(11, 16) : "—"} → {m.fin ? m.fin.slice(11, 16) : "en cours"}
+                      </span>
+                      <button onClick={() => supprimerManutention(idx)} className="text-rose-400"><Trash2 size={13} /></button>
+                    </div>
+                    <select value={m.categorie} onChange={(e) => updateManutention(idx, "categorie", e.target.value)}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-100">
+                      {categoriesManutention.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <input type="text" value={m.description} onChange={(e) => updateManutention(idx, "description", e.target.value)}
+                      onBlur={(e) => updateManutention(idx, "description", nettoyerTexte(e.target.value, 200))}
+                      placeholder="Décrire la tâche exécutée (optionnel)"
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-2 bg-slate-900/60 border border-slate-800 rounded-xl p-3">
               <DateTimeField label={t("champs.debutDeService")} value={currentEntry.debutService} onChange={(v) => updateEntry({ debutService: v })} />
@@ -2036,7 +2122,9 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="flex gap-2 flex-wrap">
-              <StatCard icon={Clock} label={t("pointage.amplitude")} value={fmtHM(calc.amplitudeMin)} sub={calc.enCoursService ? `● ${t("pointage.enCours")}` : undefined} accent="text-amber-400" />
+              {rates.profilProfessionnel !== "pilote" && (
+                <StatCard icon={Clock} label={t("pointage.amplitude")} value={fmtHM(calc.amplitudeMin)} sub={calc.enCoursService ? `● ${t("pointage.enCours")}` : undefined} accent="text-amber-400" />
+              )}
               <StatCard icon={Coffee} label={t("pointage.pause")} value={fmtHM(calc.pauseMin)} sub={calc.pauseEnCours ? `● ${t("pointage.enCours")}` : undefined} accent="text-sky-400" />
               <StatCard icon={Clock} label={t("pointage.tempsService")} value={fmtHM(calc.serviceMin)} sub={calc.enCoursService ? `● ${t("pointage.enCours")}` : t("pointage.pourLaPaie")} accent="text-emerald-400" />
               <StatCard icon={Moon} label={t("pointage.nuit")} value={fmtHM(calc.nightWorkedMin)} sub={t("pointage.majore")} accent="text-indigo-400" />
@@ -2147,101 +2235,113 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
           <div className="flex flex-col gap-3">
             <div className="text-xs text-slate-500 font-mono">Journée du {selectedDate} — taux modifiables dans Réglages</div>
 
-            {/* Casse-croûte */}
-            <FraisLigne
-              titre={t("frais.casseCroute")}
-              montant={currentEntry.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute}
-              value={currentEntry.casseCroute}
-              onChange={(v) => updateEntry({ casseCroute: v })}
-            />
+            {rates.profilProfessionnel === "routier" ? (
+              <FraisLigne
+                titre={t("frais.casseCroute")}
+                montant={currentEntry.casseCroute?.etranger ? rates.casseCrouteEtr : rates.casseCroute}
+                value={currentEntry.casseCroute}
+                onChange={(v) => updateEntry({ casseCroute: v })}
+              />
+            ) : (
+              <FraisLigne
+                titre="Déjeuner"
+                montant={currentEntry.dejeuner?.etranger ? rates.dejeunerEtr : rates.dejeuner}
+                value={currentEntry.dejeuner || { actif: false, etranger: false }}
+                onChange={(v) => updateEntry({ dejeuner: v })}
+              />
+            )}
             {/* Repas midi */}
             <FraisLigne
               titre={t("frais.repasMidi")}
-              montant={currentEntry.repasMidi.etranger ? rates.repasEtr : rates.repas}
+              montant={currentEntry.repasMidi?.etranger ? rates.repasEtr : rates.repas}
               value={currentEntry.repasMidi}
               onChange={(v) => updateEntry({ repasMidi: v })}
             />
             {/* Repas soir */}
             <FraisLigne
               titre={t("frais.repasSoir")}
-              montant={currentEntry.repasSoir.etranger ? rates.repasEtr : rates.repas}
+              montant={currentEntry.repasSoir?.etranger ? rates.repasEtr : rates.repas}
               value={currentEntry.repasSoir}
               onChange={(v) => updateEntry({ repasSoir: v })}
             />
 
-            {/* Découche */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm">{t("frais.decouche")}</span>
-                <ToggleActif value={currentEntry.decouche.actif} onChange={(v) => updateEntry({ decouche: { ...currentEntry.decouche, actif: v } })} />
-              </div>
-              {currentEntry.decouche.actif && (
-                <>
-                  <ToggleEtranger
-                    value={currentEntry.decouche.etranger}
-                    onChange={(v) => updateEntry({ decouche: { ...currentEntry.decouche, etranger: v } })}
-                    montantFr={rates.decouche} montantEtr={rates.decoucheEtr}
-                  />
+            {rates.profilProfessionnel === "routier" && (
+              <>
+                {/* Découche */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400">Note de l'endroit</span>
-                    <StarRating value={currentEntry.decouche.note} onChange={(n) => updateEntry({ decouche: { ...currentEntry.decouche, note: n } })} />
+                    <span className="font-semibold text-sm">{t("frais.decouche")}</span>
+                    <ToggleActif value={currentEntry.decouche.actif} onChange={(v) => updateEntry({ decouche: { ...currentEntry.decouche, actif: v } })} />
                   </div>
-                  <GeoBloc
-                    lieu={currentEntry.decouche.lieu}
-                    lat={currentEntry.decouche.lat}
-                    lon={currentEntry.decouche.lon}
-                    adresse={currentEntry.decouche.adresse}
-                    onLieu={(v) => updateEntry({ decouche: { ...currentEntry.decouche, lieu: v } })}
-                    onGeoloc={() => geolocaliser("decouche")}
-                    onCoordonnees={(lat, lon, adresse) => updateEntry({ decouche: { ...currentEntry.decouche, lat, lon, adresse } })}
-                  />
-                </>
-              )}
-            </div>
+                  {currentEntry.decouche.actif && (
+                    <>
+                      <ToggleEtranger
+                        value={currentEntry.decouche.etranger}
+                        onChange={(v) => updateEntry({ decouche: { ...currentEntry.decouche, etranger: v } })}
+                        montantFr={rates.decouche} montantEtr={rates.decoucheEtr}
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-400">Note de l'endroit</span>
+                        <StarRating value={currentEntry.decouche.note} onChange={(n) => updateEntry({ decouche: { ...currentEntry.decouche, note: n } })} />
+                      </div>
+                      <GeoBloc
+                        lieu={currentEntry.decouche.lieu}
+                        lat={currentEntry.decouche.lat}
+                        lon={currentEntry.decouche.lon}
+                        adresse={currentEntry.decouche.adresse}
+                        onLieu={(v) => updateEntry({ decouche: { ...currentEntry.decouche, lieu: v } })}
+                        onGeoloc={() => geolocaliser("decouche")}
+                        onCoordonnees={(lat, lon, adresse) => updateEntry({ decouche: { ...currentEntry.decouche, lat, lon, adresse } })}
+                      />
+                    </>
+                  )}
+                </div>
 
-            {/* Week-end */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm">{t("frais.weekend")}</span>
-                <ToggleActif value={currentEntry.weekend.actif} onChange={(v) => updateEntry({ weekend: { ...currentEntry.weekend, actif: v } })} />
-              </div>
-              {currentEntry.weekend.actif && (
-                <>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => updateEntry({ weekend: { ...currentEntry.weekend, etranger: false, montant: rates.weekend || currentEntry.weekend.montant } })}
-                        className={`px-2.5 py-1 rounded-lg ${!currentEntry.weekend.etranger ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}
-                      >France</button>
-                      <button
-                        onClick={() => updateEntry({ weekend: { ...currentEntry.weekend, etranger: true, montant: rates.weekendEtr || currentEntry.weekend.montant } })}
-                        className={`px-2.5 py-1 rounded-lg ${currentEntry.weekend.etranger ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}
-                      >Étranger</button>
-                    </div>
-                    <span className="font-mono text-amber-400">{(currentEntry.weekend.etranger ? rates.weekendEtr : rates.weekend).toFixed(2)} € (taux par défaut)</span>
+                {/* Week-end */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-sm">{t("frais.weekend")}</span>
+                    <ToggleActif value={currentEntry.weekend.actif} onChange={(v) => updateEntry({ weekend: { ...currentEntry.weekend, actif: v } })} />
                   </div>
-                  <label className="flex flex-col gap-1 text-xs text-slate-400">
-                    <span className="uppercase tracking-wide">Montant (modifiable manuellement)</span>
-                    <input
-                      type="number" step="0.01"
-                      value={currentEntry.weekend.montant}
-                      onChange={(e) => updateEntry({ weekend: { ...currentEntry.weekend, montant: e.target.value } })}
-                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
-                      placeholder="0.00 €"
-                    />
-                  </label>
-                  <GeoBloc
-                    lieu={currentEntry.weekend.lieu}
-                    lat={currentEntry.weekend.lat}
-                    lon={currentEntry.weekend.lon}
-                    adresse={currentEntry.weekend.adresse}
-                    onLieu={(v) => updateEntry({ weekend: { ...currentEntry.weekend, lieu: v } })}
-                    onGeoloc={() => geolocaliser("weekend")}
-                    onCoordonnees={(lat, lon, adresse) => updateEntry({ weekend: { ...currentEntry.weekend, lat, lon, adresse } })}
-                  />
-                </>
-              )}
-            </div>
+                  {currentEntry.weekend.actif && (
+                    <>
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => updateEntry({ weekend: { ...currentEntry.weekend, etranger: false, montant: rates.weekend || currentEntry.weekend.montant } })}
+                            className={`px-2.5 py-1 rounded-lg ${!currentEntry.weekend.etranger ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}
+                          >France</button>
+                          <button
+                            onClick={() => updateEntry({ weekend: { ...currentEntry.weekend, etranger: true, montant: rates.weekendEtr || currentEntry.weekend.montant } })}
+                            className={`px-2.5 py-1 rounded-lg ${currentEntry.weekend.etranger ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}
+                          >Étranger</button>
+                        </div>
+                        <span className="font-mono text-amber-400">{(currentEntry.weekend.etranger ? rates.weekendEtr : rates.weekend).toFixed(2)} € (taux par défaut)</span>
+                      </div>
+                      <label className="flex flex-col gap-1 text-xs text-slate-400">
+                        <span className="uppercase tracking-wide">Montant (modifiable manuellement)</span>
+                        <input
+                          type="number" step="0.01"
+                          value={currentEntry.weekend.montant}
+                          onChange={(e) => updateEntry({ weekend: { ...currentEntry.weekend, montant: e.target.value } })}
+                          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+                          placeholder="0.00 €"
+                        />
+                      </label>
+                      <GeoBloc
+                        lieu={currentEntry.weekend.lieu}
+                        lat={currentEntry.weekend.lat}
+                        lon={currentEntry.weekend.lon}
+                        adresse={currentEntry.weekend.adresse}
+                        onLieu={(v) => updateEntry({ weekend: { ...currentEntry.weekend, lieu: v } })}
+                        onGeoloc={() => geolocaliser("weekend")}
+                        onCoordonnees={(lat, lon, adresse) => updateEntry({ weekend: { ...currentEntry.weekend, lat, lon, adresse } })}
+                      />
+                    </>
+                  )}
+                </div>
+              </>
+            )}
 
             {geoStatus && (
               <div className="flex flex-col gap-1.5">
@@ -2257,9 +2357,9 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               </div>
             )}
 
-            {rates.modeVRPActif && (
+            {(rates.modeVRPActif || rates.profilProfessionnel !== "routier") && (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-3">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Frais VRP / Commercial</span>
+                <span className="text-xs uppercase tracking-wide text-slate-400">Frais complémentaires (péage, parking, hôtel)</span>
                 <label className="flex items-center justify-between gap-2 text-sm">
                   <span className="text-slate-300">🛣 Péage (€)</span>
                   <input type="number" step="0.01" value={currentEntry.peage} onChange={(e) => updateEntry({ peage: e.target.value })}
@@ -2663,7 +2763,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
               <LignePaie titre={`${t("paie.base")} 0–${rates.seuil1}h (${t("paie.normal")})`} heures={pay.b0} taux={rates.tauxHoraire} montant={pay.payNormal} />
-              <LignePaie titre={`${t("paie.equivalence")} 25% (${rates.seuil1}–${rates.seuil2}h)`} heures={pay.b1} taux={rates.tauxHoraire * 1.25} montant={pay.payEquiv} />
+              <LignePaie titre={rates.profilProfessionnel === "routier" ? `${t("paie.equivalence")} 25% (${rates.seuil1}–${rates.seuil2}h)` : `${t("paie.base")} ${rates.seuil1}–${rates.seuil2}h (${t("paie.normal")})`} heures={pay.b1} taux={rates.profilProfessionnel === "routier" ? rates.tauxHoraire * 1.25 : rates.tauxHoraire} montant={pay.payEquiv} />
               <LignePaie titre={`HS ${(pay.tauxHS25 * 100).toFixed(0)}% (${rates.seuil2}–${rates.seuil3}h)`} heures={pay.b2} taux={rates.tauxHoraire * pay.tauxHS25} montant={pay.payHS25} />
               <LignePaie titre={`HS ${(pay.tauxHS50 * 100).toFixed(0)}% (${rates.seuil3}–${rates.seuil4}h)`} heures={pay.b3} taux={rates.tauxHoraire * pay.tauxHS50} montant={pay.payHS50} />
               <LignePaie titre={`HS ${(pay.tauxHS100 * 100).toFixed(0)}% (${rates.seuil4}–${rates.seuilBanque}h)`} heures={pay.b4} taux={rates.tauxHoraire * pay.tauxHS100} montant={pay.payHS100} />
@@ -2717,6 +2817,22 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         {/* ============ ONGLET RÉGLAGES ============ */}
         {tab === "reglages" && (
           <div className="flex flex-col gap-4">
+            <Section titre="Profil professionnel">
+              <p className="text-[10px] text-slate-500 -mt-1">Détermine les règles d'amplitude/temps de service et le calcul de paie applicables.</p>
+              <div className="flex flex-col gap-2">
+                {PROFILS_PROFESSIONNELS.map((p) => (
+                  <button key={p.id} onClick={() => updateRate("profilProfessionnel", p.id)}
+                    className={`text-left p-2.5 rounded-lg border ${rates.profilProfessionnel === p.id ? "bg-amber-500/10 border-amber-500" : "bg-slate-800/50 border-slate-700"}`}>
+                    <div className="text-sm font-semibold text-slate-100">{p.label}</div>
+                    <div className="text-[11px] text-slate-400">{p.description}</div>
+                  </button>
+                ))}
+              </div>
+              {rates.profilProfessionnel !== "routier" && (
+                <p className="text-[10px] text-amber-400 mt-1">ℹ Mode Routier et coupures réglementaires désactivés pour ce profil. Frais péage/parking/hôtel activés automatiquement dans l'onglet Frais. La paie ne comporte plus de palier d'équivalence à 125%.</p>
+              )}
+            </Section>
+
             <Section titre={t("sections.tauxHoraire")}>
               <ChampNombre label={t("champs.tauxHoraireBase")} value={rates.tauxHoraire} onChange={(v) => updateRate("tauxHoraire", v)} />
               <ChampNombre label={t("champs.coefNetBrut")} value={rates.coefNet} onChange={(v) => updateRate("coefNet", v)} step="0.01" />
@@ -2793,12 +2909,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               )}
             </Section>
 
-            <Section titre={t("sections.modeVRP")}>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Activer le mode VRP / Commercial</span>
-                <ToggleActif value={rates.modeVRPActif} onChange={(v) => updateRate("modeVRPActif", v)} />
-              </div>
-              <p className="text-[10px] text-slate-500">Ajoute des champs de frais péage, parking et hôtel dans l'onglet Frais — utile pour les commerciaux et VRP en plus des chauffeurs routiers.</p>
+            <Section titre="Alerte temps de service">
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span>Seuil d'alerte temps de service (minutes)</span>
                 <input type="number" min="1" value={rates.vrpAlerteSeuilMinutes} onChange={(e) => updateRate("vrpAlerteSeuilMinutes", Number(e.target.value) || 15)}
