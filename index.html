@@ -5,32 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Mon carnet de bord — Yoda 0.1</title>
 
-<!-- Vérification du compte Google AdSense -->
-<meta name="google-adsense-account" content="ca-pub-2682887044167463" />
-
-<!--
-  AdSense est chargé uniquement sur un véritable site Web.
-  Il n'est pas chargé dans l'APK Capacitor, où les publicités sont gérées par AdMob.
--->
-<script>
-(function chargerAdSenseUniquementSurLeWeb() {
-  var protocoleWeb = window.location.protocol === "https:" || window.location.protocol === "http:";
-  var hoteLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  var environnementCapacitor =
-    window.location.protocol === "capacitor:" ||
-    window.location.protocol === "ionic:" ||
-    hoteLocal;
-
-  if (!protocoleWeb || environnementCapacitor) return;
-
-  var script = document.createElement("script");
-  script.async = true;
-  script.crossOrigin = "anonymous";
-  script.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2682887044167463";
-  document.head.appendChild(script);
-})();
-</script>
-
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#020617" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -103,28 +77,6 @@ const ADMOB_BANNIERE_ID = "ca-app-pub-5594672619293459/8270058591";     // banni
 const ADMOB_INTERSTITIEL_DEMARRAGE_ID = "ca-app-pub-5594672619293459/8162247387"; // à l'ouverture de l'app
 const ADMOB_INTERSTITIEL_PAIE_ID = "ca-app-pub-5594672619293459/5675684848";      // onglet Paie
 const ADMOB_INTERSTITIEL_RAPPORTS_ID = "ca-app-pub-5594672619293459/5643895252"; // onglets Frais et Rapports
-
-// Détecte proprement si le code tourne dans l'APK Android/iOS Capacitor.
-// Sur le lien HTML, cette fonction renvoie false et aucun appel AdMob n'est exécuté.
-function estApplicationNative() {
-  try {
-    if (!window.Capacitor) return false;
-    if (typeof window.Capacitor.isNativePlatform === "function") {
-      return window.Capacitor.isNativePlatform();
-    }
-    if (typeof window.Capacitor.getPlatform === "function") {
-      return window.Capacitor.getPlatform() !== "web";
-    }
-    return ["capacitor:", "ionic:"].includes(window.location.protocol);
-  } catch (e) {
-    return false;
-  }
-}
-
-function obtenirPluginAdMob() {
-  if (!estApplicationNative()) return null;
-  return window.Capacitor?.Plugins?.AdMob || null;
-}
 
 /* =========================================================================
    GOOGLE PLAY BILLING — abonnements réels, vérifiés côté serveur
@@ -565,8 +517,12 @@ const DEFAULT_CARBURANT = { pleins: [] };
 const DEFAULT_PUBLICITES = {
   actif: true,
   intervalleSecondes: 60,
+  // Publicités Google AdSense — utilisées uniquement sur la version web du carnet
+  // (dans l'application Android, c'est AdMob qui prend le relais).
+  adsenseClient: "",
+  adsenseSlot: "",
   annonces: [
-    { id: "pub-defaut", texte: "Espace publicitaire disponible — configure tes annonces dans Réglages", lien: "" },
+    { id: "pub-defaut", texte: "Espace publicitaire disponible — configure tes annonces dans Réglages", lien: "", image: "" },
   ],
 };
 
@@ -1220,7 +1176,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
      1,99 €   : bannière + vidéo (interstitiel) uniquement à l'ouverture de l'onglet Paie
      3,99 €   : aucune publicité ---------- */
   useEffect(() => {
-    const AdMobPlugin = obtenirPluginAdMob();
+    const AdMobPlugin = window.Capacitor?.Plugins?.AdMob;
     if (!AdMobPlugin || sansPubEffectif) return; // Premium ou "sans pub" : on n'initialise même pas AdMob
     (async () => {
       try {
@@ -1239,7 +1195,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
   const afficherInterstitiel = async (adId) => {
     if (sansPubEffectif) return;
-    const AdMobPlugin = obtenirPluginAdMob();
+    const AdMobPlugin = window.Capacitor?.Plugins?.AdMob;
     if (!AdMobPlugin) return;
     try {
       await AdMobPlugin.prepareInterstitial({ adId });
@@ -1441,6 +1397,17 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     updateEntry({ manutentions });
   };
   const manutentionEnCours = (currentEntry.manutentions || []).length > 0 && !currentEntry.manutentions[currentEntry.manutentions.length - 1].fin;
+
+  // Temps total de manutention de la journée — la manutention en cours est comptée
+  // en temps réel (jusqu'à maintenant), pour que le compteur avance à l'écran.
+  const totalManutentionJour = useMemo(() => {
+    const maintenant = nowLocalISO();
+    return (currentEntry.manutentions || []).reduce((somme, m) => {
+      if (!m.debut) return somme;
+      const fin = m.fin || maintenant;
+      return somme + Math.max(0, minutesBetween(m.debut, fin));
+    }, 0);
+  }, [currentEntry.manutentions, liveTick]);
   const updateManutention = (idx, field, val) => {
     const manutentions = [...(currentEntry.manutentions || [])];
     manutentions[idx] = { ...manutentions[idx], [field]: val };
@@ -1764,41 +1731,78 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       }
     }
 
-    /* ----- Détail des frais, ventilé par nature ----- */
-    const cumul = { casseCroute: 0, dejeuner: 0, repasMidi: 0, repasSoir: 0, decouche: 0, weekend: 0, peage: 0, parking: 0, hotel: 0 };
+    /* ----- Détail des frais : nombre et montant, ventilés France / Étranger ----- */
+    // Pour chaque nature : { nbFr, montantFr, nbEtr, montantEtr }
+    const vide = () => ({ nbFr: 0, mtFr: 0, nbEtr: 0, mtEtr: 0 });
+    const cumul = {
+      casseCroute: vide(), dejeuner: vide(), repasMidi: vide(), repasSoir: vide(),
+      decouche: vide(), weekend: vide(),
+    };
+    const ajouter = (cible, etranger, montant) => {
+      if (etranger) { cible.nbEtr += 1; cible.mtEtr += montant; }
+      else { cible.nbFr += 1; cible.mtFr += montant; }
+    };
+    let peage = 0, parking = 0, hotel = 0;
     entriesInPeriod.forEach((e) => {
-      if (e.casseCroute?.actif) cumul.casseCroute += e.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute;
-      if (e.dejeuner?.actif) cumul.dejeuner += e.dejeuner.etranger ? rates.dejeunerEtr : rates.dejeuner;
-      if (e.repasMidi?.actif) cumul.repasMidi += e.repasMidi.etranger ? rates.repasEtr : rates.repas;
-      if (e.repasSoir?.actif) cumul.repasSoir += e.repasSoir.etranger ? rates.repasEtr : rates.repas;
-      if (e.decouche?.actif) cumul.decouche += e.decouche.etranger ? rates.decoucheEtr : rates.decouche;
-      if (e.weekend?.actif) cumul.weekend += Number(e.weekend.montant) || 0;
-      cumul.peage += Number(e.peage) || 0;
-      cumul.parking += Number(e.parking) || 0;
-      cumul.hotel += Number(e.hotel) || 0;
+      if (e.casseCroute?.actif) ajouter(cumul.casseCroute, e.casseCroute.etranger, e.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute);
+      if (e.dejeuner?.actif) ajouter(cumul.dejeuner, e.dejeuner.etranger, e.dejeuner.etranger ? rates.dejeunerEtr : rates.dejeuner);
+      if (e.repasMidi?.actif) ajouter(cumul.repasMidi, e.repasMidi.etranger, e.repasMidi.etranger ? rates.repasEtr : rates.repas);
+      if (e.repasSoir?.actif) ajouter(cumul.repasSoir, e.repasSoir.etranger, e.repasSoir.etranger ? rates.repasEtr : rates.repas);
+      if (e.decouche?.actif) ajouter(cumul.decouche, e.decouche.etranger, e.decouche.etranger ? rates.decoucheEtr : rates.decouche);
+      if (e.weekend?.actif) ajouter(cumul.weekend, e.weekend.etranger, Number(e.weekend.montant) || 0);
+      peage += Number(e.peage) || 0;
+      parking += Number(e.parking) || 0;
+      hotel += Number(e.hotel) || 0;
     });
+
     // Les intitulés varient selon le métier (casse-croûte routier vs déjeuner salarié/pilote)
-    const naturesFrais = estRoutier
+    const natures = estRoutier
       ? [["Casse-croûte", cumul.casseCroute], ["Repas midi", cumul.repasMidi], ["Repas soir", cumul.repasSoir],
-         ["Découche", cumul.decouche], ["Week-end", cumul.weekend],
-         ["Péage", cumul.peage], ["Parking", cumul.parking], ["Hôtel", cumul.hotel]]
+         ["Découche", cumul.decouche], ["Week-end", cumul.weekend]]
       : [["Déjeuner", cumul.dejeuner], ["Repas midi", cumul.repasMidi], ["Repas soir", cumul.repasSoir],
-         ["Péage", cumul.peage], ["Parking", cumul.parking], ["Hôtel", cumul.hotel]];
-    const lignesFrais = naturesFrais.filter(([, v]) => v > 0).map(([n, v]) => [n, `${v.toFixed(2)} €`]);
+         ["Découche", cumul.decouche], ["Week-end", cumul.weekend]];
+
+    const lignesFrais = natures
+      .filter(([, v]) => v.nbFr + v.nbEtr > 0)
+      .map(([nom, v]) => [
+        nom,
+        v.nbFr ? String(v.nbFr) : "—",
+        v.nbFr ? `${v.mtFr.toFixed(2)} €` : "—",
+        v.nbEtr ? String(v.nbEtr) : "—",
+        v.nbEtr ? `${v.mtEtr.toFixed(2)} €` : "—",
+        String(v.nbFr + v.nbEtr),
+        `${(v.mtFr + v.mtEtr).toFixed(2)} €`,
+      ]);
+    // Péage / parking / hôtel : montants libres, sans notion de pays
+    [["Péage", peage], ["Parking", parking], ["Hôtel", hotel]].forEach(([nom, mt]) => {
+      if (mt > 0) lignesFrais.push([nom, "—", "—", "—", "—", "—", `${mt.toFixed(2)} €`]);
+    });
 
     if (lignesFrais.length) {
       y = doc.lastAutoTable.finalY + 10;
       doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...NAVY);
-      doc.text("Détail des frais", 14, y);
+      doc.text("Détail des frais (nombre et montant)", 14, y);
       doc.autoTable({
         startY: y + 4,
-        head: [["Nature", "Total"]],
-        body: [...lignesFrais, ["TOTAL", `${periodTotals.frais.toFixed(2)} €`]],
+        head: [[
+          { content: "Nature", rowSpan: 2 },
+          { content: "France", colSpan: 2 },
+          { content: "Étranger", colSpan: 2 },
+          { content: "Total", colSpan: 2 },
+        ], ["Nb", "Montant", "Nb", "Montant", "Nb", "Montant"]],
+        body: [...lignesFrais, [
+          { content: "TOTAL GÉNÉRAL", colSpan: 6, styles: { halign: "right", fontStyle: "bold" } },
+          `${periodTotals.frais.toFixed(2)} €`,
+        ]],
         theme: "striped",
-        headStyles: { fillColor: NAVY, textColor: 255, fontStyle: "bold", fontSize: 9 },
+        headStyles: { fillColor: NAVY, textColor: 255, fontStyle: "bold", fontSize: 8.5, halign: "center" },
         bodyStyles: { fontSize: 8.5, textColor: [30, 41, 59] },
         alternateRowStyles: { fillColor: LIGHT },
-        columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+        columnStyles: {
+          1: { halign: "center" }, 2: { halign: "right" },
+          3: { halign: "center" }, 4: { halign: "right" },
+          5: { halign: "center", fontStyle: "bold" }, 6: { halign: "right", fontStyle: "bold" },
+        },
         margin: { left: 14, right: 14 },
         didDrawPage: piedDePage,
       });
@@ -2043,7 +2047,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
   const ajouterAnnonce = () => {
     const id = "pub-" + Math.random().toString(36).slice(2, 8);
-    setPublicites((prev) => ({ ...prev, annonces: [...prev.annonces, { id, texte: "Nouvelle annonce", lien: "" }] }));
+    setPublicites((prev) => ({ ...prev, annonces: [...prev.annonces, { id, texte: "Nouvelle annonce", lien: "", image: "" }] }));
   };
   const modifierAnnonce = (id, patch) => {
     setPublicites((prev) => ({ ...prev, annonces: prev.annonces.map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
@@ -2225,6 +2229,9 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       {!sansPubEffectif && publicites.actif && publicites.annonces.length > 0 && (
         <BanniereRotative annonce={publicites.annonces[pubIndex % publicites.annonces.length]} theme={theme} />
       )}
+      {!sansPubEffectif && publicites.actif && (
+        <EncartAdSense client={publicites.adsenseClient} slot={publicites.adsenseSlot} />
+      )}
 
       <div className="px-4 mt-4 max-w-xl mx-auto">
 
@@ -2257,7 +2264,10 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
             {rates.profilProfessionnel === "pilote" && (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Manutentions de la journée (incluses dans le temps de service)</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Manutentions de la journée (incluses dans le temps de service)</span>
+                  <span className="font-mono font-bold text-amber-400 text-sm shrink-0">{fmtHM(totalManutentionJour)}</span>
+                </div>
                 {(currentEntry.manutentions || []).length === 0 && <p className="text-xs text-slate-500">Aucune manutention enregistrée.</p>}
                 {(currentEntry.manutentions || []).map((m, idx) => (
                   <div key={m.id} className="bg-slate-800/60 rounded-lg p-2 flex flex-col gap-1.5">
@@ -2336,6 +2346,10 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               <StatCard icon={Coffee} label={t("pointage.pause")} value={fmtHM(calc.pauseMin)} sub={calc.pauseEnCours ? `● ${t("pointage.enCours")}` : undefined} accent="text-sky-400" />
               <StatCard icon={Clock} label={t("pointage.tempsService")} value={fmtHM(calc.serviceMin)} sub={calc.enCoursService ? `● ${t("pointage.enCours")}` : t("pointage.pourLaPaie")} accent="text-emerald-400" />
               <StatCard icon={Moon} label={t("pointage.nuit")} value={fmtHM(calc.nightWorkedMin)} sub={t("pointage.majore")} accent="text-indigo-400" />
+              {rates.profilProfessionnel === "pilote" && (
+                <StatCard icon={Wrench} label="Manutention" value={fmtHM(totalManutentionJour)}
+                  sub={manutentionEnCours ? `● ${t("pointage.enCours")}` : "incluse au service"} accent="text-amber-500" />
+              )}
               {coupure && (
                 <StatCard icon={Moon} label={coupure.estWeekend ? t("pointage2.coupureWeekend") : t("pointage2.coupureRepos")}
                   value={fmtHM(coupure.dureeMin)}
@@ -3211,6 +3225,9 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                       <input type="text" value={a.texte} onChange={(e) => modifierAnnonce(a.id, { texte: e.target.value })}
                         onBlur={(e) => modifierAnnonce(a.id, { texte: nettoyerTexte(e.target.value, 200) })}
                         placeholder={t("placeholders.texteAnnonce")} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+                      <input type="text" value={a.image || ""} onChange={(e) => modifierAnnonce(a.id, { image: e.target.value })}
+                        onBlur={(e) => modifierAnnonce(a.id, { image: validerURL(e.target.value) })}
+                        placeholder="Image de la bannière (https://... , optionnel)" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
                       <div className="flex gap-2">
                         <input type="text" value={a.lien} onChange={(e) => modifierAnnonce(a.id, { lien: e.target.value })}
                           onBlur={(e) => modifierAnnonce(a.id, { lien: validerURL(e.target.value) })}
@@ -3221,8 +3238,22 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                   ))}
                 </div>
                 <button onClick={ajouterAnnonce} className="flex items-center justify-center gap-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg py-1.5"><Plus size={13} /> Ajouter une annonce</button>
+
+                <div className="border-t border-slate-700 mt-2 pt-2 flex flex-col gap-1.5">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Google AdSense — version Web</span>
+                  <p className="text-[10px] text-slate-500">AdMob ne fonctionne que dans l'application installée. Pour monétiser le site web, renseigne ici ton compte AdSense (adsense.google.com).</p>
+                  <input type="text" value={publicites.adsenseClient || ""}
+                    onChange={(e) => setPublicites((p) => ({ ...p, adsenseClient: e.target.value }))}
+                    onBlur={(e) => setPublicites((p) => ({ ...p, adsenseClient: nettoyerTexte(e.target.value, 60) }))}
+                    placeholder="ID client (ex : ca-pub-1234567890123456)" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+                  <input type="text" value={publicites.adsenseSlot || ""}
+                    onChange={(e) => setPublicites((p) => ({ ...p, adsenseSlot: e.target.value }))}
+                    onBlur={(e) => setPublicites((p) => ({ ...p, adsenseSlot: nettoyerTexte(e.target.value, 30) }))}
+                    placeholder="ID du bloc d'annonces (ex : 1234567890)" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
+                </div>
+
                 <button onClick={enregistrerPublicitesPartagees} className="flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg py-1.5 mt-1">{t("boutons2.publierPourTous")}</button>
-                <p className="text-[10px] text-slate-500 mt-1">Ces annonces sont visibles par tous les comptes de l'application. Pour de la publicité rémunératrice automatique (Google AdMob), une intégration séparée est nécessaire.</p>
+                <p className="text-[10px] text-slate-500 mt-1">Ces réglages s'appliquent à tous les comptes. Bannières et AdSense sur le site web, AdMob dans l'application installée.</p>
               </Section>
             ) : (
               <Section titre={t("sections.banniere")}>
@@ -3362,7 +3393,12 @@ function FormMouvementBanque({ onValider, defautTaux }) {
 
 function BanniereRotative({ annonce, theme }) {
   if (!annonce) return null;
-  const contenu = (
+  // Une annonce peut être une simple ligne de texte, ou une véritable image publicitaire
+  const contenu = annonce.image ? (
+    <div className="w-full flex justify-center bg-slate-900" key={annonce.id}>
+      <img src={annonce.image} alt={annonce.texte || "Publicité"} className="max-h-20 w-auto object-contain" />
+    </div>
+  ) : (
     <div className="px-4 py-2 text-center text-xs font-semibold truncate transition-opacity duration-500"
       style={{ backgroundColor: theme.accent, color: "#0f172a" }} key={annonce.id}>
       {annonce.texte}
@@ -3372,6 +3408,49 @@ function BanniereRotative({ annonce, theme }) {
     return <a href={annonce.lien} target="_blank" rel="noreferrer" className="block">{contenu}</a>;
   }
   return contenu;
+}
+
+/* =========================================================================
+   ENCART ADSENSE — publicités sur la version WEB uniquement
+   Dans l'application installée (Android), c'est AdMob qui gère les annonces ;
+   AdMob ne fonctionne pas dans un navigateur, d'où cet encart dédié au site.
+   L'administrateur renseigne son identifiant client et son bloc d'annonces
+   dans Réglages ; rien ne s'affiche tant que ce n'est pas configuré.
+   ========================================================================= */
+function EncartAdSense({ client, slot }) {
+  const conteneur = React.useRef(null);
+  const estNatif = !!window.Capacitor?.isNativePlatform?.();
+
+  React.useEffect(() => {
+    if (estNatif || !client || !slot) return;
+    // Charge le script officiel Google AdSense une seule fois
+    const url = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
+    if (!document.querySelector(`script[data-adsense="1"]`)) {
+      const s = document.createElement("script");
+      s.src = url;
+      s.async = true;
+      s.crossOrigin = "anonymous";
+      s.setAttribute("data-adsense", "1");
+      document.head.appendChild(s);
+    }
+    // Demande l'affichage de l'annonce (ignoré silencieusement si le script est bloqué)
+    const t = setTimeout(() => {
+      try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) { /* bloqueur de pub ou script indisponible */ }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [client, slot, estNatif]);
+
+  if (estNatif || !client || !slot) return null;
+  return (
+    <div ref={conteneur} className="w-full flex justify-center bg-slate-900/40 overflow-hidden">
+      <ins className="adsbygoogle"
+        style={{ display: "block", width: "100%", minHeight: "60px" }}
+        data-ad-client={client}
+        data-ad-slot={slot}
+        data-ad-format="auto"
+        data-full-width-responsive="true" />
+    </div>
+  );
 }
 
 function FraisLigne({ titre, montant, value, onChange }) {
