@@ -204,7 +204,7 @@ const DEFAULT_RATES = {
 
 const PROFILS_PROFESSIONNELS = [
   { id: "routier", label: "🚛 Routier", description: "Amplitude et temps de service réglementaires (13-15h), coupures, frais route" },
-  { id: "livreur", label: "📦 Livreur -3,5T", description: "Régime allégé (véhicule léger), sans les règles routier lourd" },
+  { id: "salarie", label: "👷 Salarié général", description: "Temps de service simple (début − fin − pauses), postes jour/matin/après-midi/nuit" },
   { id: "pilote", label: "🚗 Voiture pilote", description: "Accompagnement de convois, manutention chronométrée, suivi simplifié" },
 ];
 
@@ -215,6 +215,7 @@ const DEFAULT_THEME = {
   texte: "#f1f5f9",
   carte: "#1e293b",
   tailleTexte: "normal", // "petit" | "normal" | "grand"
+  echelle: 1, // mise à l'échelle globale de l'interface (0.8 à 1.3)
 };
 const TAILLES_TEXTE = { petit: "14px", normal: "16px", grand: "19px" };
 
@@ -465,6 +466,16 @@ const TRADUCTIONS = {
   },
 };
 
+// Fonction de traduction GLOBALE — utilisable par les composants définis hors du
+// composant principal (FormMouvementBanque, GeoBloc, FormEntretien, FormPlein...).
+// Sans elle, ces composants provoquaient un plantage ("t is not defined") faisant
+// écran noir sur les onglets Banque, Garage, Carburant, Paie et Frais.
+function t(cle, params) {
+  let langue = "fr";
+  try { langue = localStorage.getItem("carnet-langue") || "fr"; } catch (e) { /* stockage indisponible */ }
+  return traduire(langue, cle, params);
+}
+
 function traduire(langue, cle, params) {
   const dict = TRADUCTIONS[langue] || TRADUCTIONS.fr;
   let texte = cle.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), dict);
@@ -490,6 +501,13 @@ const DEFAULT_GARAGE = {
   depannages: [],
 };
 
+const POSTES_SALARIE = [
+  { id: "jour", label: "☀️ Journée" },
+  { id: "matin", label: "🌅 Matin" },
+  { id: "apresmidi", label: "🌇 Après-midi" },
+  { id: "nuit", label: "🌙 Nuit" },
+];
+
 const DEFAULT_CATEGORIES_ENTRETIEN = ["Vidange", "Freins", "Pneus", "Révision", "Courroie", "Autre"];
 const DEFAULT_CATEGORIES_MANUTENTION = ["Chargement", "Déchargement", "Attente client", "Accompagnement convoi", "Balisage/signalisation", "Autre"];
 const DEFAULT_CATEGORIES_DEPANNAGE = ["Crevaison", "Panne", "Accident", "Autre"];
@@ -513,6 +531,7 @@ const emptyEntry = (date) => ({
   pauses: [],
   pauseManuelle: "",
   manutentions: [],
+  poste: "",
   casseCroute: { actif: false, etranger: false },
   dejeuner: { actif: false, etranger: false },
   repasMidi: { actif: false, etranger: false },
@@ -615,7 +634,7 @@ function computeSegments(entry, liveNow) {
   const finEffective = entry.finService || liveNow || "";
   if (!finEffective) return [];
 
-  const pauses = entry.pauses
+  const pauses = (entry.pauses || [])
     .filter((p) => p.debut)
     .slice()
     .sort((a, b) => a.debut.localeCompare(b.debut));
@@ -718,8 +737,8 @@ function computeEntry(entry, rates, liveNow) {
   const finEffective = entry.finService || (enCoursService && liveNow ? liveNow : "");
   const amplitudeMin = minutesBetween(entry.debutService, finEffective);
 
-  const pausesCompletes = entry.pauses.filter((p) => p.debut && p.fin);
-  const pauseEnCours = entry.pauses.find((p) => p.debut && !p.fin);
+  const pausesCompletes = (entry.pauses || []).filter((p) => p.debut && p.fin);
+  const pauseEnCours = (entry.pauses || []).find((p) => p.debut && !p.fin);
   let pauseCalcMin = pausesCompletes.reduce(
     (s, p) => s + minutesBetween(p.debut, p.fin), 0
   );
@@ -865,7 +884,7 @@ function classifyAmplitude(amplitudeH, rates) {
 }
 
 function longestPauseMinutes(entry) {
-  return entry.pauses
+  return (entry.pauses || [])
     .filter((p) => p.debut && p.fin)
     .reduce((max, p) => Math.max(max, minutesBetween(p.debut, p.fin)), 0);
 }
@@ -1215,16 +1234,25 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
       // nouvelles fonctionnalités (ex: dejeuner, finServiceLieu) — évite les plantages.
       const entriesBrutes = lire("entries", []);
       setEntries(entriesBrutes.map((e) => ({ ...emptyEntry(e.date), ...e })));
-      setRates({ ...DEFAULT_RATES, ...lire("rates", {}) });
-      setBanque(lire("banque", { soldeDepart: 0, tauxDepart: 1.5, mouvements: [] }));
-      setPrimes(lire("primes", {}));
-      setPlanning(lire("planning", {}));
+      const ratesBruts = lire("rates", {}) || {};
+      // Migration : l'ancien profil "livreur" devient "salarie"
+      if (ratesBruts.profilProfessionnel === "livreur") ratesBruts.profilProfessionnel = "salarie";
+      setRates({ ...DEFAULT_RATES, ...ratesBruts });
+      // Fusion avec les structures par défaut : garantit que les sous-champs (mouvements,
+      // pleins...) existent toujours, même sur d'anciennes sauvegardes — évite les écrans noirs.
+      setBanque({ soldeDepart: 0, tauxDepart: 1.5, mouvements: [], ...(lire("banque", {}) || {}) });
+      setPrimes(lire("primes", {}) || {});
+      setPlanning(lire("planning", {}) || {});
       setStatuts(lire("statuts", DEFAULT_STATUTS));
-      setGarage({ ...DEFAULT_GARAGE, ...lire("garage", {}) });
+      const garageBrut = lire("garage", {}) || {};
+      setGarage({ ...DEFAULT_GARAGE, ...garageBrut,
+        tracteur: { ...DEFAULT_GARAGE.tracteur, ...(garageBrut.tracteur || {}) },
+        remorque: { ...DEFAULT_GARAGE.remorque, ...(garageBrut.remorque || {}) },
+        entretiens: garageBrut.entretiens || [], depannages: garageBrut.depannages || [] });
       setCategoriesEntretien(lire("categoriesEntretien", DEFAULT_CATEGORIES_ENTRETIEN));
       setCategoriesManutention(lire("categoriesManutention", DEFAULT_CATEGORIES_MANUTENTION));
       setCategoriesDepannage(lire("categoriesDepannage", DEFAULT_CATEGORIES_DEPANNAGE));
-      setCarburant(lire("carburant", DEFAULT_CARBURANT));
+      setCarburant({ ...DEFAULT_CARBURANT, ...(lire("carburant", {}) || {}) });
       setTheme({ ...DEFAULT_THEME, ...lire("theme", {}) });
       setLoaded(true);
     })();
@@ -1566,17 +1594,42 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(200, 200, 210);
     doc.text(`Référence : ${refDate}`, pageW - 14, 20, { align: "right" });
 
-    let y = 38;
+    /* ----- Le contenu du rapport s'adapte au profil professionnel ----- */
+    const profil = rates.profilProfessionnel || "routier";
+    const estRoutier = profil === "routier";
+    const estPilote = profil === "pilote";
+    const estSalarie = profil === "salarie";
+    const libelleProfil = (PROFILS_PROFESSIONNELS.find((p) => p.id === profil) || {}).label || "Routier";
+    const liveNowStr = nowLocalISO();
+
+    // Durée totale de manutention d'une journée (profil Voiture pilote)
+    const manutMinutes = (e) => (e.manutentions || [])
+      .filter((m) => m.debut && m.fin)
+      .reduce((s, m) => s + minutesBetween(m.debut, m.fin), 0);
+
+    // Rappel du profil sous l'en-tête, pour que le rapport soit auto-explicatif
+    doc.setFontSize(9); doc.setTextColor(...SLATE);
+    doc.text(`Profil : ${libelleProfil.replace(/[^\x20-\x7EÀ-ÿ]/g, "").trim()}`, 14, 34);
+
+    let y = 42;
     doc.setTextColor(...NAVY); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
     doc.text("Résumé de la période", 14, y);
     y += 6;
+
+    const totalManut = entriesInPeriod.reduce((s, e) => s + manutMinutes(e), 0);
+    const totalPause = entriesInPeriod.reduce((s, e) => s + computeEntry(e, rates, liveNowStr).pauseMin, 0);
+
     const resume = [
       ["Temps de service total", fmtHM(periodTotals.serviceMin)],
-      ["Amplitude totale", fmtHM(periodTotals.amplitudeMin)],
+      // L'amplitude n'a de sens réglementaire que pour le profil Routier
+      ...(estRoutier ? [["Amplitude totale", fmtHM(periodTotals.amplitudeMin)]] : []),
+      ["Total des pauses", fmtHM(totalPause)],
+      ...(estPilote ? [["Dont temps de manutention", fmtHM(totalManut)]] : []),
       ["Heures de nuit (majorées 20%)", fmtHM(periodTotals.nightMin)],
-      ["Frais de route totaux", `${periodTotals.frais.toFixed(2)} €`],
+      [estRoutier ? "Frais de route totaux" : "Frais totaux", `${periodTotals.frais.toFixed(2)} €`],
       ["Nombre de journées travaillées", String(entriesInPeriod.length)],
-      ...(scoreEfficacite ? [["Score d'efficacité", `${scoreEfficacite.score}/100 (${scoreEfficacite.depassements} dépassement(s))`]] : []),
+      // Le score se base sur les dépassements d'amplitude : pertinent seulement en Routier
+      ...(estRoutier && scoreEfficacite ? [["Score d'efficacité", `${scoreEfficacite.score}/100 (${scoreEfficacite.depassements} dépassement(s))`]] : []),
     ];
     doc.autoTable({
       startY: y, theme: "plain", styles: { fontSize: 10, textColor: NAVY },
@@ -1588,32 +1641,122 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...NAVY);
     doc.text("Détail journalier", 14, y);
 
-    const liveNowStr = nowLocalISO();
+    // Colonnes propres à chaque métier
+    const entete = estRoutier
+      ? ["Date", "Début", "Fin", "Amplitude", "Pause", "Service", "Nuit", "Frais"]
+      : estPilote
+        ? ["Date", "Début", "Fin", "Pause", "Service", "Manutention", "Nuit", "Frais"]
+        : ["Date", "Poste", "Début", "Fin", "Pause", "Service", "Nuit", "Frais"];
+
     const lignes = entriesInPeriod.map((e) => {
       const c = computeEntry(e, rates, liveNowStr);
-      return [
-        e.date, e.debutService ? e.debutService.slice(11, 16) : "—", e.finService ? e.finService.slice(11, 16) : "—",
-        fmtHM(c.amplitudeMin), fmtHM(c.pauseMin), fmtHM(c.serviceMin), fmtHM(c.nightWorkedMin), `${c.frais.toFixed(2)} €`,
-      ];
+      const debut = e.debutService ? e.debutService.slice(11, 16) : "—";
+      const fin = e.finService ? e.finService.slice(11, 16) : "—";
+      const frais = `${c.frais.toFixed(2)} €`;
+      if (estRoutier) {
+        return [e.date, debut, fin, fmtHM(c.amplitudeMin), fmtHM(c.pauseMin), fmtHM(c.serviceMin), fmtHM(c.nightWorkedMin), frais];
+      }
+      if (estPilote) {
+        return [e.date, debut, fin, fmtHM(c.pauseMin), fmtHM(c.serviceMin), fmtHM(manutMinutes(e)), fmtHM(c.nightWorkedMin), frais];
+      }
+      const poste = (POSTES_SALARIE.find((p) => p.id === e.poste) || {}).label || "—";
+      return [e.date, poste.replace(/[^\x20-\x7EÀ-ÿ]/g, "").trim() || "—", debut, fin, fmtHM(c.pauseMin), fmtHM(c.serviceMin), fmtHM(c.nightWorkedMin), frais];
     });
+
+    const piedDePage = () => {
+      const pageH = doc.internal.pageSize.getHeight();
+      doc.setFontSize(8); doc.setTextColor(...SLATE);
+      doc.text("Mon carnet de bord — Yoda 0.1 — FARDOUX Mathieu", 14, pageH - 8);
+      doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageW - 14, pageH - 8, { align: "right" });
+    };
+
     doc.autoTable({
       startY: y + 4,
-      head: [["Date", "Début", "Fin", "Amplitude", "Pause", "Service", "Nuit", "Frais"]],
+      head: [entete],
       body: lignes,
       theme: "striped",
       headStyles: { fillColor: NAVY, textColor: 255, fontStyle: "bold", fontSize: 9 },
       bodyStyles: { fontSize: 8.5, textColor: [30, 41, 59] },
       alternateRowStyles: { fillColor: LIGHT },
       margin: { left: 14, right: 14 },
-      didDrawPage: () => {
-        const pageH = doc.internal.pageSize.getHeight();
-        doc.setFontSize(8); doc.setTextColor(...SLATE);
-        doc.text("Mon carnet de bord — Yoda 0.1 — FARDOUX Mathieu", 14, pageH - 8);
-        doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageW - 14, pageH - 8, { align: "right" });
-      },
+      didDrawPage: piedDePage,
     });
 
-    const nomFichier = `rapport-${periodType}-${refDate}.pdf`;
+    /* ----- Détail des manutentions (profil Voiture pilote uniquement) ----- */
+    if (estPilote) {
+      const lignesManut = [];
+      entriesInPeriod.forEach((e) => {
+        (e.manutentions || []).forEach((m) => {
+          lignesManut.push([
+            e.date,
+            m.debut ? m.debut.slice(11, 16) : "—",
+            m.fin ? m.fin.slice(11, 16) : "en cours",
+            m.debut && m.fin ? fmtHM(minutesBetween(m.debut, m.fin)) : "—",
+            m.categorie || "—",
+            m.description || "",
+          ]);
+        });
+      });
+      if (lignesManut.length) {
+        y = doc.lastAutoTable.finalY + 10;
+        doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...NAVY);
+        doc.text("Détail des manutentions", 14, y);
+        doc.autoTable({
+          startY: y + 4,
+          head: [["Date", "Début", "Fin", "Durée", "Catégorie", "Tâche exécutée"]],
+          body: lignesManut,
+          theme: "striped",
+          headStyles: { fillColor: NAVY, textColor: 255, fontStyle: "bold", fontSize: 9 },
+          bodyStyles: { fontSize: 8.5, textColor: [30, 41, 59] },
+          alternateRowStyles: { fillColor: LIGHT },
+          columnStyles: { 5: { cellWidth: 55 } },
+          margin: { left: 14, right: 14 },
+          didDrawPage: piedDePage,
+        });
+      }
+    }
+
+    /* ----- Détail des frais, ventilé par nature ----- */
+    const cumul = { casseCroute: 0, dejeuner: 0, repasMidi: 0, repasSoir: 0, decouche: 0, weekend: 0, peage: 0, parking: 0, hotel: 0 };
+    entriesInPeriod.forEach((e) => {
+      if (e.casseCroute?.actif) cumul.casseCroute += e.casseCroute.etranger ? rates.casseCrouteEtr : rates.casseCroute;
+      if (e.dejeuner?.actif) cumul.dejeuner += e.dejeuner.etranger ? rates.dejeunerEtr : rates.dejeuner;
+      if (e.repasMidi?.actif) cumul.repasMidi += e.repasMidi.etranger ? rates.repasEtr : rates.repas;
+      if (e.repasSoir?.actif) cumul.repasSoir += e.repasSoir.etranger ? rates.repasEtr : rates.repas;
+      if (e.decouche?.actif) cumul.decouche += e.decouche.etranger ? rates.decoucheEtr : rates.decouche;
+      if (e.weekend?.actif) cumul.weekend += Number(e.weekend.montant) || 0;
+      cumul.peage += Number(e.peage) || 0;
+      cumul.parking += Number(e.parking) || 0;
+      cumul.hotel += Number(e.hotel) || 0;
+    });
+    // Les intitulés varient selon le métier (casse-croûte routier vs déjeuner salarié/pilote)
+    const naturesFrais = estRoutier
+      ? [["Casse-croûte", cumul.casseCroute], ["Repas midi", cumul.repasMidi], ["Repas soir", cumul.repasSoir],
+         ["Découche", cumul.decouche], ["Week-end", cumul.weekend],
+         ["Péage", cumul.peage], ["Parking", cumul.parking], ["Hôtel", cumul.hotel]]
+      : [["Déjeuner", cumul.dejeuner], ["Repas midi", cumul.repasMidi], ["Repas soir", cumul.repasSoir],
+         ["Péage", cumul.peage], ["Parking", cumul.parking], ["Hôtel", cumul.hotel]];
+    const lignesFrais = naturesFrais.filter(([, v]) => v > 0).map(([n, v]) => [n, `${v.toFixed(2)} €`]);
+
+    if (lignesFrais.length) {
+      y = doc.lastAutoTable.finalY + 10;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...NAVY);
+      doc.text("Détail des frais", 14, y);
+      doc.autoTable({
+        startY: y + 4,
+        head: [["Nature", "Total"]],
+        body: [...lignesFrais, ["TOTAL", `${periodTotals.frais.toFixed(2)} €`]],
+        theme: "striped",
+        headStyles: { fillColor: NAVY, textColor: 255, fontStyle: "bold", fontSize: 9 },
+        bodyStyles: { fontSize: 8.5, textColor: [30, 41, 59] },
+        alternateRowStyles: { fillColor: LIGHT },
+        columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+        margin: { left: 14, right: 14 },
+        didDrawPage: piedDePage,
+      });
+    }
+
+    const nomFichier = `rapport-${profil}-${periodType}-${refDate}.pdf`;
     return { doc, nomFichier };
   };
 
@@ -1721,21 +1864,21 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   /* ---------- Banque d'heures ---------- */
 
   const soldeBanqueHeures = useMemo(() => {
-    const depots = banque.mouvements.filter((m) => m.type === "depot").reduce((s, m) => s + Number(m.heures), 0);
-    const retraits = banque.mouvements.filter((m) => m.type === "retrait").reduce((s, m) => s + Number(m.heures), 0);
+    const depots = (banque.mouvements || []).filter((m) => m.type === "depot").reduce((s, m) => s + Number(m.heures), 0);
+    const retraits = (banque.mouvements || []).filter((m) => m.type === "retrait").reduce((s, m) => s + Number(m.heures), 0);
     return Number(banque.soldeDepart || 0) + depots - retraits;
   }, [banque]);
 
   const soldeBanqueValeur = useMemo(() => {
     let total = Number(banque.soldeDepart || 0) * Number(banque.tauxDepart || 1) * rates.tauxHoraire;
-    banque.mouvements.forEach((m) => {
+    (banque.mouvements || []).forEach((m) => {
       const signe = m.type === "depot" ? 1 : -1;
       total += signe * Number(m.heures) * Number(m.taux || 1) * rates.tauxHoraire;
     });
     return total;
   }, [banque, rates.tauxHoraire]);
 
-  const dejaVerseCeMois = banque.mouvements.some((m) => m.type === "depot" && m.note === `Versement automatique ${payMonth}`);
+  const dejaVerseCeMois = (banque.mouvements || []).some((m) => m.type === "depot" && m.note === `Versement automatique ${payMonth}`);
 
   const verserBanqueDuMois = () => {
     if (pay.bBanque <= 0 || dejaVerseCeMois) return;
@@ -1812,12 +1955,12 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     setGarage((prev) => ({ ...prev, depannages: prev.depannages.filter((d) => d.id !== id) }));
 
   const ajouterCategorieEntretien = (nom) => {
-    if (!nom || categoriesEntretien.includes(nom)) return;
+    if (!nom || (categoriesEntretien || []).includes(nom)) return;
     setCategoriesEntretien((prev) => [...prev.filter((c) => c !== "Autre"), nom, "Autre"]);
   };
   const supprimerCategorieEntretien = (nom) => setCategoriesEntretien((prev) => prev.filter((c) => c !== nom));
   const ajouterCategorieDepannage = (nom) => {
-    if (!nom || categoriesDepannage.includes(nom)) return;
+    if (!nom || (categoriesDepannage || []).includes(nom)) return;
     setCategoriesDepannage((prev) => [...prev.filter((c) => c !== "Autre"), nom, "Autre"]);
   };
   const supprimerCategorieDepannage = (nom) => setCategoriesDepannage((prev) => prev.filter((c) => c !== nom));
@@ -1830,7 +1973,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     setCarburant((prev) => ({ ...prev, pleins: prev.pleins.filter((p) => p.id !== id) }));
 
   const consommationGasoil = useMemo(() => {
-    const pleinsGasoil = carburant.pleins
+    const pleinsGasoil = (carburant.pleins || [])
       .filter((p) => p.type === "gasoil" && p.km)
       .slice()
       .sort((a, b) => Number(a.km) - Number(b.km));
@@ -1905,7 +2048,10 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
         if (d.banque) setBanque(d.banque);
         if (d.planning) setPlanning(d.planning);
         if (d.statuts) setStatuts(d.statuts);
-        if (d.garage) setGarage({ ...DEFAULT_GARAGE, ...d.garage });
+        if (d.garage) setGarage({ ...DEFAULT_GARAGE, ...d.garage,
+          tracteur: { ...DEFAULT_GARAGE.tracteur, ...(d.garage.tracteur || {}) },
+          remorque: { ...DEFAULT_GARAGE.remorque, ...(d.garage.remorque || {}) },
+          entretiens: d.garage.entretiens || [], depannages: d.garage.depannages || [] });
         if (d.categoriesEntretien) setCategoriesEntretien(d.categoriesEntretien);
         if (d.categoriesDepannage) setCategoriesDepannage(d.categoriesDepannage);
         if (d.carburant) setCarburant(d.carburant);
@@ -1965,7 +2111,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
   return (
     <div
       className="min-h-screen font-sans pb-24"
-      style={{ backgroundColor: theme.fond, color: theme.texte, "--accent": theme.accent, fontSize: TAILLES_TEXTE[theme.tailleTexte] || TAILLES_TEXTE.normal }}
+      style={{ backgroundColor: theme.fond, color: theme.texte, "--accent": theme.accent, fontSize: TAILLES_TEXTE[theme.tailleTexte] || TAILLES_TEXTE.normal, zoom: theme.echelle || 1 }}
     >
       {/* En-tête style tableau de bord */}
       <div className="border-b border-slate-800 px-4 pt-5 pb-3 sticky top-0 z-20" style={{ backgroundColor: theme.fond }}>
@@ -2075,7 +2221,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                     </div>
                     <select value={m.categorie} onChange={(e) => updateManutention(idx, "categorie", e.target.value)}
                       className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-100">
-                      {categoriesManutention.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {(categoriesManutention || []).map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                     <input type="text" value={m.description} onChange={(e) => updateManutention(idx, "description", e.target.value)}
                       onBlur={(e) => updateManutention(idx, "description", nettoyerTexte(e.target.value, 200))}
@@ -2083,6 +2229,20 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                       className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs" />
                   </div>
                 ))}
+              </div>
+            )}
+
+            {rates.profilProfessionnel === "salarie" && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Poste de la journée</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {POSTES_SALARIE.map((p) => (
+                    <button key={p.id} onClick={() => updateEntry({ poste: currentEntry.poste === p.id ? "" : p.id })}
+                      className={`py-2 rounded-lg text-sm font-semibold ${currentEntry.poste === p.id ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-300"}`}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -2198,12 +2358,12 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
                 <div className="border-t border-slate-800 pt-2 flex flex-col gap-1.5">
                   <span className="text-slate-400 text-xs flex items-center gap-1.5"><Clock size={13} className="text-emerald-400" /> Temps de service (pauses déduites)</span>
-                  {calc.segments.length === 0 && (
+                  {(calc.segments || []).length === 0 && (
                     <p className="text-xs text-slate-500">
                       {calc.pauseEnCours ? "En pause — le temps de service reprendra à la fin de pause." : "Aucun segment de travail pour l'instant."}
                     </p>
                   )}
-                  {calc.segments.map((s, idx) => (
+                  {(calc.segments || []).map((s, idx) => (
                     <div key={idx} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5">
                       <span className="font-mono text-slate-300">{fmtHeure(s.debut)} → {fmtHeure(s.fin)}{s.enCours ? " (en cours)" : ""}</span>
                       <span className="font-mono text-emerald-400">{fmtHM(minutesBetween(s.debut, s.fin))}</span>
@@ -2452,7 +2612,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
 
             <div className="flex flex-wrap gap-1.5">
-              {statuts.map((s) => (
+              {(statuts || []).map((s) => (
                 <span key={s.id} className="text-[10px] px-2 py-1 rounded-full font-semibold text-white" style={{ backgroundColor: s.couleur }}>{s.label}</span>
               ))}
             </div>
@@ -2472,7 +2632,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                       className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs"
                     >
                       <option value="">{t("planning.aucunStatut")}</option>
-                      {statuts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                      {(statuts || []).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                     </select>
                     {statutInfo && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold text-white" style={{ backgroundColor: statutInfo.couleur }}>{statutInfo.label}</span>}
                   </div>
@@ -2482,7 +2642,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
               <span className="text-xs uppercase tracking-wide text-slate-400">{t("planning.gererCategories")}</span>
-              {statuts.map((s) => (
+              {(statuts || []).map((s) => (
                 <div key={s.id} className="flex items-center gap-2">
                   <input type="color" value={s.couleur} onChange={(e) => modifierStatut(s.id, { couleur: e.target.value })} className="w-8 h-8 rounded bg-transparent" />
                   <input type="text" value={s.label} onChange={(e) => modifierStatut(s.id, { label: e.target.value })}
@@ -2535,8 +2695,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
-              {banque.mouvements.length === 0 && <p className="p-3 text-xs text-slate-500">{t("banque.aucunMouvement")}</p>}
-              {banque.mouvements.slice().reverse().map((m) => (
+              {(banque.mouvements || []).length === 0 && <p className="p-3 text-xs text-slate-500">{t("banque.aucunMouvement")}</p>}
+              {(banque.mouvements || []).slice().reverse().map((m) => (
                 <div key={m.id} className="p-2.5 flex items-center justify-between text-xs gap-2">
                   <span className="font-mono text-slate-400 w-20">{m.date}</span>
                   <span className={m.type === "depot" ? "text-emerald-400" : "text-rose-400"}>{m.type === "depot" ? "+" : "-"}{Number(m.heures).toFixed(2)}h</span>
@@ -2555,12 +2715,12 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             <Section titre={t("sections.tracteur")}>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span>{t("garage.immatriculation")}</span>
-                <input type="text" value={garage.tracteur.immatriculation} onChange={(e) => updateGarageVehicule("tracteur", "immatriculation", e.target.value)}
+                <input type="text" value={garage.tracteur?.immatriculation || ""} onChange={(e) => updateGarageVehicule("tracteur", "immatriculation", e.target.value)}
                   className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="AA-123-BB" />
               </label>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span>{t("garage.kilometrageActuel")}</span>
-                <input type="number" value={garage.tracteur.kmActuel} onChange={(e) => updateGarageVehicule("tracteur", "kmActuel", e.target.value)}
+                <input type="number" value={garage.tracteur?.kmActuel || ""} onChange={(e) => updateGarageVehicule("tracteur", "kmActuel", e.target.value)}
                   className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="km" />
               </label>
             </Section>
@@ -2568,7 +2728,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             <Section titre={t("sections.remorque")}>
               <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span>{t("garage.immatriculation")}</span>
-                <input type="text" value={garage.remorque.immatriculation} onChange={(e) => updateGarageVehicule("remorque", "immatriculation", e.target.value)}
+                <input type="text" value={garage.remorque?.immatriculation || ""} onChange={(e) => updateGarageVehicule("remorque", "immatriculation", e.target.value)}
                   className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-right" placeholder="AA-123-BB" />
               </label>
             </Section>
@@ -2577,7 +2737,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               <span className="text-xs uppercase tracking-wide text-slate-400">{t("garage.entretiens")}</span>
               <FormEntretien onValider={ajouterEntretien} categories={categoriesEntretien} onAjouterCategorie={ajouterCategorieEntretien} />
               <div className="flex flex-wrap gap-1.5">
-                {categoriesEntretien.map((c) => (
+                {(categoriesEntretien || []).map((c) => (
                   <span key={c} className="flex items-center gap-1 text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded-full">
                     {c}
                     {c !== "Autre" && <button onClick={() => supprimerCategorieEntretien(c)} className="text-rose-400"><Trash2 size={10} /></button>}
@@ -2585,9 +2745,9 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                 ))}
               </div>
               <div className="flex flex-col gap-1.5 mt-1">
-                {garage.entretiens.length === 0 && <p className="text-xs text-slate-500">{t("garage.aucunEntretien")}</p>}
-                {garage.entretiens.slice().reverse().map((e) => {
-                  const aFaire = e.prochainKm && garage.tracteur.kmActuel && Number(garage.tracteur.kmActuel) >= Number(e.prochainKm);
+                {(garage.entretiens || []).length === 0 && <p className="text-xs text-slate-500">{t("garage.aucunEntretien")}</p>}
+                {(garage.entretiens || []).slice().reverse().map((e) => {
+                  const aFaire = e.prochainKm && garage.tracteur?.kmActuel && Number(garage.tracteur.kmActuel) >= Number(e.prochainKm);
                   return (
                     <div key={e.id} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5 gap-2">
                       <span className="font-mono text-slate-400 w-20">{e.date}</span>
@@ -2604,7 +2764,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
               <span className="text-xs uppercase tracking-wide text-slate-400">{t("garage.depannages")}</span>
               <FormDepannage onValider={ajouterDepannage} categories={categoriesDepannage} onAjouterCategorie={ajouterCategorieDepannage} />
               <div className="flex flex-wrap gap-1.5">
-                {categoriesDepannage.map((c) => (
+                {(categoriesDepannage || []).map((c) => (
                   <span key={c} className="flex items-center gap-1 text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded-full">
                     {c}
                     {c !== "Autre" && <button onClick={() => supprimerCategorieDepannage(c)} className="text-rose-400"><Trash2 size={10} /></button>}
@@ -2612,8 +2772,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                 ))}
               </div>
               <div className="flex flex-col gap-1.5 mt-1">
-                {garage.depannages.length === 0 && <p className="text-xs text-slate-500">{t("garage.aucunDepannage")}</p>}
-                {garage.depannages.slice().reverse().map((d) => (
+                {(garage.depannages || []).length === 0 && <p className="text-xs text-slate-500">{t("garage.aucunDepannage")}</p>}
+                {(garage.depannages || []).slice().reverse().map((d) => (
                   <div key={d.id} className="flex items-center justify-between text-xs bg-slate-800/60 rounded-lg px-2.5 py-1.5 gap-2">
                     <span className="font-mono text-slate-400 w-20">{d.date}</span>
                     <span className="flex-1 text-slate-300">{d.type} — {d.note}</span>
@@ -2640,8 +2800,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl divide-y divide-slate-800">
-              {carburant.pleins.length === 0 && <p className="p-3 text-xs text-slate-500">{t("carburant.aucunPlein")}</p>}
-              {carburant.pleins.slice().reverse().map((p) => {
+              {(carburant.pleins || []).length === 0 && <p className="p-3 text-xs text-slate-500">{t("carburant.aucunPlein")}</p>}
+              {(carburant.pleins || []).slice().reverse().map((p) => {
                 const badge = { gasoil: "bg-amber-900/40 text-amber-300", adblue: "bg-sky-900/40 text-sky-300", fioul_rouge: "bg-rose-900/40 text-rose-300" }[p.type];
                 const labelType = { gasoil: t("carburant.gasoil"), adblue: t("carburant.adblue"), fioul_rouge: t("carburant.fiouldRouge") }[p.type];
                 return (
@@ -2784,8 +2944,8 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
               <span className="text-xs uppercase tracking-wide text-slate-400">{t("paie.primesDuMois")}</span>
-              {primesDuMois.length === 0 && <p className="text-xs text-slate-500">{t("paie.aucunePrime")}</p>}
-              {primesDuMois.map((p) => (
+              {(primesDuMois || []).length === 0 && <p className="text-xs text-slate-500">{t("paie.aucunePrime")}</p>}
+              {(primesDuMois || []).map((p) => (
                 <div key={p.id} className="flex items-center justify-between text-sm bg-slate-800/60 rounded-lg px-3 py-2">
                   <span>{p.label}</span>
                   <div className="flex items-center gap-2">
@@ -2940,6 +3100,19 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
                   <option value="petit">Petit</option>
                   <option value="normal">Normal</option>
                   <option value="grand">Grand</option>
+                </select>
+              </label>
+
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>Mise à l'échelle de l'affichage</span>
+                <select value={theme.echelle || 1} onChange={(e) => updateTheme("echelle", Number(e.target.value))}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-100">
+                  <option value={0.8}>80 % (plus dense)</option>
+                  <option value={0.9}>90 %</option>
+                  <option value={1}>100 % (normal)</option>
+                  <option value={1.1}>110 %</option>
+                  <option value={1.2}>120 %</option>
+                  <option value={1.3}>130 % (plus gros)</option>
                 </select>
               </label>
 
@@ -3822,8 +3995,51 @@ function AuthGate() {
   return <MonCarnetDeBord user={authUser} isAdmin={isAdmin} onLogout={deconnexion} joursRestantsEssai={joursRestantsEssai} />;
 }
 
+/* =========================================================================
+   FILET DE SÉCURITÉ — empêche définitivement les "écrans noirs"
+   Si une erreur inattendue survient dans l'interface, on affiche un message
+   clair (avec le détail technique) plutôt qu'une page vide.
+   ========================================================================= */
+class GardeFou extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { erreur: null };
+  }
+  static getDerivedStateFromError(erreur) {
+    return { erreur };
+  }
+  componentDidCatch(erreur, info) {
+    console.error("Erreur interface :", erreur, info);
+  }
+  render() {
+    if (this.state.erreur) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 p-5 flex flex-col gap-4 font-sans">
+          <h1 className="text-lg font-black text-amber-400">Un souci est survenu sur cet écran</h1>
+          <p className="text-sm text-slate-300">
+            Tes données sont bien enregistrées, rien n'est perdu. Recharge l'application pour continuer.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-amber-500 text-slate-950 font-bold text-sm rounded-lg py-2.5 px-4 self-start"
+          >
+            Recharger l'application
+          </button>
+          <details className="text-[11px] text-slate-500 mt-2">
+            <summary className="cursor-pointer">Détail technique (utile pour le support)</summary>
+            <pre className="whitespace-pre-wrap mt-2 bg-slate-900 p-2 rounded-lg overflow-auto">
+              {String(this.state.erreur?.stack || this.state.erreur)}
+            </pre>
+          </details>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const root = createRoot(document.getElementById("root"));
-root.render(<AuthGate />);
+root.render(<GardeFou><AuthGate /></GardeFou>);
 </script>
 <script>
   (function () {
