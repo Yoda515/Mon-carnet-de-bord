@@ -5,6 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Mon carnet de bord — Yoda 0.1</title>
 
+<!-- Vérification du compte Google AdSense -->
+<meta name="google-adsense-account" content="ca-pub-2682887044167463" />
+
+<!--
+  AdSense est chargé uniquement sur un véritable site Web.
+  Il n'est pas chargé dans l'APK Capacitor, où les publicités sont gérées par AdMob.
+-->
+<script>
+(function chargerAdSenseUniquementSurLeWeb() {
+  var protocoleWeb = window.location.protocol === "https:" || window.location.protocol === "http:";
+  var hoteLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  var environnementCapacitor =
+    window.location.protocol === "capacitor:" ||
+    window.location.protocol === "ionic:" ||
+    hoteLocal;
+
+  if (!protocoleWeb || environnementCapacitor) return;
+
+  var script = document.createElement("script");
+  script.async = true;
+  script.crossOrigin = "anonymous";
+  script.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2682887044167463";
+  document.head.appendChild(script);
+})();
+</script>
+
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#020617" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -77,6 +103,28 @@ const ADMOB_BANNIERE_ID = "ca-app-pub-5594672619293459/8270058591";     // banni
 const ADMOB_INTERSTITIEL_DEMARRAGE_ID = "ca-app-pub-5594672619293459/8162247387"; // à l'ouverture de l'app
 const ADMOB_INTERSTITIEL_PAIE_ID = "ca-app-pub-5594672619293459/5675684848";      // onglet Paie
 const ADMOB_INTERSTITIEL_RAPPORTS_ID = "ca-app-pub-5594672619293459/5643895252"; // onglets Frais et Rapports
+
+// Détecte proprement si le code tourne dans l'APK Android/iOS Capacitor.
+// Sur le lien HTML, cette fonction renvoie false et aucun appel AdMob n'est exécuté.
+function estApplicationNative() {
+  try {
+    if (!window.Capacitor) return false;
+    if (typeof window.Capacitor.isNativePlatform === "function") {
+      return window.Capacitor.isNativePlatform();
+    }
+    if (typeof window.Capacitor.getPlatform === "function") {
+      return window.Capacitor.getPlatform() !== "web";
+    }
+    return ["capacitor:", "ionic:"].includes(window.location.protocol);
+  } catch (e) {
+    return false;
+  }
+}
+
+function obtenirPluginAdMob() {
+  if (!estApplicationNative()) return null;
+  return window.Capacitor?.Plugins?.AdMob || null;
+}
 
 /* =========================================================================
    GOOGLE PLAY BILLING — abonnements réels, vérifiés côté serveur
@@ -1172,7 +1220,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
      1,99 €   : bannière + vidéo (interstitiel) uniquement à l'ouverture de l'onglet Paie
      3,99 €   : aucune publicité ---------- */
   useEffect(() => {
-    const AdMobPlugin = window.Capacitor?.Plugins?.AdMob;
+    const AdMobPlugin = obtenirPluginAdMob();
     if (!AdMobPlugin || sansPubEffectif) return; // Premium ou "sans pub" : on n'initialise même pas AdMob
     (async () => {
       try {
@@ -1191,7 +1239,7 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
 
   const afficherInterstitiel = async (adId) => {
     if (sansPubEffectif) return;
-    const AdMobPlugin = window.Capacitor?.Plugins?.AdMob;
+    const AdMobPlugin = obtenirPluginAdMob();
     if (!AdMobPlugin) return;
     try {
       await AdMobPlugin.prepareInterstitial({ adId });
