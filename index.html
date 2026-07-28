@@ -13,25 +13,76 @@
 <meta name="apple-mobile-web-app-title" content="Carnet de bord" />
 <link rel="icon" href="icons/icon-192.png" />
 
-<script src="https://cdn.tailwindcss.com"></script>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- ===================================================================
+     BIBLIOTHÈQUES : fichier local d'abord, Internet en secours.
+     Dans l'application installée, tout est embarqué (dossier vendor/) :
+     elle démarre donc même sans réseau — c'est ce qui provoquait un écran
+     noir lorsqu'un seul de ces fichiers n'arrivait pas à se charger.
+     Sur le site web, si le dossier vendor/ n'est pas en ligne, le
+     chargement bascule automatiquement sur les CDN.
+     =================================================================== -->
+<link rel="stylesheet" href="vendor/tailwind.css" />
+<script src="vendor/react.min.js"></script>
+<script>window.React || document.write('<scr'+'ipt src="https://unpkg.com/react@18/umd/react.production.min.js"><\/scr'+'ipt>');</script>
+<script src="vendor/react-dom.min.js"></script>
+<script>window.ReactDOM || document.write('<scr'+'ipt src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/scr'+'ipt>');</script>
+<script src="vendor/firebase-app-compat.js"></script>
+<script>window.firebase || document.write('<scr'+'ipt src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"><\/scr'+'ipt>');</script>
+<script src="vendor/firebase-auth-compat.js"></script>
+<script>(window.firebase && firebase.auth) || document.write('<scr'+'ipt src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"><\/scr'+'ipt>');</script>
+<script src="vendor/firebase-firestore-compat.js"></script>
+<script>(window.firebase && firebase.firestore) || document.write('<scr'+'ipt src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"><\/scr'+'ipt>');</script>
+<script src="vendor/firebase-functions-compat.js"></script>
+<script>(window.firebase && firebase.functions) || document.write('<scr'+'ipt src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"><\/scr'+'ipt>');</script>
+<script src="vendor/babel.min.js"></script>
+<script>window.Babel || document.write('<scr'+'ipt src="https://unpkg.com/@babel/standalone/babel.min.js"><\/scr'+'ipt>');</script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+<script>
+  // Si la feuille de style locale est absente (site web sans dossier vendor/),
+  // on charge Tailwind depuis Internet pour conserver la mise en page.
+  (function verifierStyles() {
+    var t = document.createElement("div");
+    t.className = "hidden";
+    document.documentElement.appendChild(t);
+    var ok = getComputedStyle(t).display === "none";
+    document.documentElement.removeChild(t);
+    if (!ok) document.write('<scr'+'ipt src="https://cdn.tailwindcss.com"><\/scr'+'ipt>');
+  })();
+</script>
 
 <style>
-  html, body, #root { height: 100%; background:#020617; }
+  /* CSS volontairement minimal : aucune contrainte de hauteur ni de défilement.
+     Toute règle du type "height:100%" ou "overflow" sur html/body fige la page
+     à la taille de l'écran dans la WebView Android et coupe le contenu long
+     (écran apparemment noir). La hauteur plein écran est déjà assurée par la
+     classe "min-h-screen" appliquée au conteneur de l'application. */
+  html, body { margin: 0; padding: 0; background: #020617; }
   ::-webkit-scrollbar { display:none; }
   .no-scrollbar::-webkit-scrollbar{display:none;}
   .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none;}
+
+  /* Écran de démarrage : évite un écran vide pendant la préparation de
+     l'application (quelques instants sur téléphone). */
+  #demarrage {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    background: #020617; color: #f59e0b; z-index: 9999;
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif; text-align: center; padding: 20px;
+  }
+  #demarrage .titre { font-size: 20px; font-weight: 900; letter-spacing: -0.5px; }
+  #demarrage .sous { font-size: 12px; color: #64748b; }
+  #demarrage .barre { width: 140px; height: 3px; background:#1e293b; border-radius: 999px; overflow: hidden; }
+  #demarrage .barre i { display:block; width: 40%; height: 100%; background:#f59e0b; animation: glisse 1s infinite ease-in-out; }
+  @keyframes glisse { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 </style>
 </head>
 <body>
+<div id="demarrage">
+  <div class="titre">MON CARNET DE BORD</div>
+  <div class="barre"><i></i></div>
+  <div class="sous">Préparation de l'application…</div>
+</div>
 <div id="root"></div>
 
 <script type="text/jsx-source" id="app-source">
@@ -519,8 +570,8 @@ const DEFAULT_PUBLICITES = {
   intervalleSecondes: 60,
   // Publicités Google AdSense — utilisées uniquement sur la version web du carnet
   // (dans l'application Android, c'est AdMob qui prend le relais).
-  adsenseClient: "",
-  adsenseSlot: "",
+  adsenseClient: "ca-pub-2682887044167463",
+  adsenseSlot: "1667250512",
   annonces: [
     { id: "pub-defaut", texte: "Espace publicitaire disponible — configure tes annonces dans Réglages", lien: "", image: "" },
   ],
@@ -2160,10 +2211,19 @@ function MonCarnetDeBord({ user, isAdmin, onLogout, joursRestantsEssai }) {
     ...(isAdmin ? [{ id: "admin", label: t("tabs.admin"), icon: Users }] : []),
   ];
 
+  // Mise à l'échelle : on agrandit la taille de police de base plutôt que
+  // d'utiliser la propriété CSS "zoom", qui perturbe le défilement dans la
+  // WebView Android (contenu coupé / écran apparemment vide).
+  const tailleTexteEffective = (() => {
+    const base = parseFloat(TAILLES_TEXTE[theme.tailleTexte] || TAILLES_TEXTE.normal) || 16;
+    const facteur = Number(theme.echelle) || 1;
+    return `${Math.round(base * facteur * 10) / 10}px`;
+  })();
+
   return (
     <div
       className="min-h-screen font-sans pb-24"
-      style={{ backgroundColor: theme.fond, color: theme.texte, "--accent": theme.accent, fontSize: TAILLES_TEXTE[theme.tailleTexte] || TAILLES_TEXTE.normal, zoom: theme.echelle || 1 }}
+      style={{ backgroundColor: theme.fond, color: theme.texte, "--accent": theme.accent, fontSize: tailleTexteEffective }}
     >
       {/* En-tête style tableau de bord */}
       <div className="border-b border-slate-800 px-4 pt-5 pb-3 sticky top-0 z-20" style={{ backgroundColor: theme.fond }}>
@@ -3425,7 +3485,7 @@ function EncartAdSense({ client, slot }) {
     if (estNatif || !client || !slot) return;
     // Charge le script officiel Google AdSense une seule fois
     const url = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
-    if (!document.querySelector(`script[data-adsense="1"]`)) {
+    if (!document.querySelector('script[src*="pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]')) {
       const s = document.createElement("script");
       s.src = url;
       s.async = true;
@@ -4140,24 +4200,30 @@ class GardeFou extends React.Component {
   }
   render() {
     if (this.state.erreur) {
+      const msg = String(this.state.erreur?.message || this.state.erreur);
+      const pile = String(this.state.erreur?.stack || "").split("\n").slice(0, 6).join("\n");
       return (
         <div className="min-h-screen bg-slate-950 text-slate-100 p-5 flex flex-col gap-4 font-sans">
           <h1 className="text-lg font-black text-amber-400">Un souci est survenu sur cet écran</h1>
           <p className="text-sm text-slate-300">
             Tes données sont bien enregistrées, rien n'est perdu. Recharge l'application pour continuer.
           </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-amber-500 text-slate-950 font-bold text-sm rounded-lg py-2.5 px-4 self-start"
-          >
-            Recharger l'application
-          </button>
-          <details className="text-[11px] text-slate-500 mt-2">
-            <summary className="cursor-pointer">Détail technique (utile pour le support)</summary>
-            <pre className="whitespace-pre-wrap mt-2 bg-slate-900 p-2 rounded-lg overflow-auto">
-              {String(this.state.erreur?.stack || this.state.erreur)}
-            </pre>
-          </details>
+          {/* Message affiché en clair : il suffit de le recopier pour signaler le problème */}
+          <div className="bg-slate-900 border border-rose-800 rounded-xl p-3 flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-slate-500">Message d'erreur (à communiquer au support)</span>
+            <p className="text-xs font-mono text-rose-300 break-words">{msg}</p>
+            <pre className="text-[10px] font-mono text-slate-500 whitespace-pre-wrap mt-1">{pile}</pre>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => window.location.reload()}
+              className="bg-amber-500 text-slate-950 font-bold text-sm rounded-lg py-2.5 px-4">
+              Recharger l'application
+            </button>
+            <button onClick={() => { try { navigator.clipboard.writeText(msg + "\n" + pile); } catch (e) {} }}
+              className="bg-slate-800 border border-slate-600 text-slate-200 font-semibold text-sm rounded-lg py-2.5 px-4">
+              Copier l'erreur
+            </button>
+          </div>
         </div>
       );
     }
@@ -4165,18 +4231,76 @@ class GardeFou extends React.Component {
   }
 }
 
+/* Les erreurs asynchrones (hors rendu React) ne sont pas interceptées par les
+   garde-fous ci-dessus : on les affiche donc dans un bandeau discret, pour
+   qu'aucun problème ne reste invisible. */
+(function surveillerErreurs() {
+  const afficher = (texte) => {
+    let zone = document.getElementById("bandeau-erreur");
+    if (!zone) {
+      zone = document.createElement("div");
+      zone.id = "bandeau-erreur";
+      zone.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#7f1d1d;color:#fff;font:11px/1.4 monospace;padding:8px 34px 8px 10px;max-height:35vh;overflow:auto;white-space:pre-wrap";
+      const fermer = document.createElement("button");
+      fermer.textContent = "✕";
+      fermer.style.cssText = "position:absolute;top:4px;right:8px;background:transparent;border:0;color:#fff;font-size:15px;cursor:pointer";
+      fermer.onclick = () => zone.remove();
+      zone.appendChild(fermer);
+      document.body.appendChild(zone);
+    }
+    const ligne = document.createElement("div");
+    ligne.textContent = texte;
+    zone.appendChild(ligne);
+  };
+  window.addEventListener("error", (e) => {
+    afficher(`Erreur : ${e.message} — ${e.filename || ""}:${e.lineno || "?"}`);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    const r = e.reason;
+    afficher(`Erreur asynchrone : ${r && r.message ? r.message : String(r)}`);
+  });
+})();
+
 const root = createRoot(document.getElementById("root"));
 root.render(<GardeFou><AuthGate /></GardeFou>);
 </script>
 <script>
   (function () {
-    var source = document.getElementById("app-source").textContent;
-    var compiled = Babel.transform(source, {
-      presets: [["react", { runtime: "classic" }]]
-    }).code;
-    var script = document.createElement("script");
-    script.textContent = compiled;
-    document.body.appendChild(script);
+    var demarrage = document.getElementById("demarrage");
+    var echec = function (titre, detail) {
+      if (!demarrage) return;
+      demarrage.innerHTML =
+        '<div class="titre">Démarrage impossible</div>' +
+        '<div class="sous" style="max-width:320px">' + titre + '</div>' +
+        '<div class="sous" style="color:#475569;font-family:monospace;font-size:10px;max-width:320px">' + (detail || "") + '</div>';
+    };
+
+    // Vérifie que les bibliothèques sont bien chargées avant de démarrer :
+    // sans cela, un fichier manquant se traduisait par un écran noir muet.
+    var manquantes = [];
+    if (!window.React) manquantes.push("React");
+    if (!window.ReactDOM) manquantes.push("ReactDOM");
+    if (!window.Babel) manquantes.push("Babel");
+    if (!window.firebase) manquantes.push("Firebase");
+    if (manquantes.length) {
+      echec("Certains composants n'ont pas pu être chargés. Vérifie ta connexion, puis rouvre l'application.",
+            "Manquant : " + manquantes.join(", "));
+      return;
+    }
+
+    try {
+      var source = document.getElementById("app-source").textContent;
+      var compiled = Babel.transform(source, {
+        presets: [["react", { runtime: "classic" }]]
+      }).code;
+      var script = document.createElement("script");
+      script.textContent = compiled;
+      document.body.appendChild(script);
+      // L'application est affichée : on retire l'écran de démarrage.
+      if (demarrage) demarrage.remove();
+    } catch (err) {
+      echec("Une erreur est survenue pendant la préparation de l'application.", String(err && err.message ? err.message : err));
+    }
   })();
 </script>
 </body>
