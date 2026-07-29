@@ -462,6 +462,9 @@ const DEFAULT_RATES = {
   mutuelleCotisation: 0,
   heuresFerie: 7,
   // Nombre d'heures payées automatiquement pour chaque jour férié pointé
+  ongletBanqueActif: true,
+  ongletGarageActif: true,
+  ongletCarburantActif: true,
   // € par mois — déduit après l'impôt
   seuil1: 152,
   // fin taux normal
@@ -2066,12 +2069,18 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
   const tauxHS25 = rates.activerHS25 ? 1.25 : 1.0;
   const tauxHS50 = rates.activerHS50 ? 1.5 : tauxHS25;
   const tauxHS100 = rates.activerHS100 ? 2.0 : tauxHS50;
-  const seuilBanque = Math.max(rates.seuilBanque, rates.seuil4);
-  const b0 = Math.min(H, rates.seuil1);
-  const b1 = Math.max(0, Math.min(H, rates.seuil2) - rates.seuil1);
-  const b2 = Math.max(0, Math.min(H, rates.seuil3) - rates.seuil2);
-  const b3 = Math.max(0, Math.min(H, rates.seuil4) - rates.seuil3);
-  const b4 = Math.max(0, Math.min(H, seuilBanque) - rates.seuil4); // palier 100% (ou taux cascade)
+  // Respecte réellement le plafond réglé par l'employeur : les heures
+  // effectivement PAYÉES ce mois sont d'abord plafonnées, puis réparties sur
+  // les paliers. Sans ce plafonnement préalable, des heures pouvaient être à
+  // la fois payées (palier HS100) ET signalées comme "à verser en banque" —
+  // un double comptage qui empêchait le versement en banque de fonctionner.
+  const seuilBanque = Number(rates.seuilBanque) > 0 ? Number(rates.seuilBanque) : rates.seuil4;
+  const Hpaye = Math.min(H, seuilBanque);
+  const b0 = Math.min(Hpaye, rates.seuil1);
+  const b1 = Math.max(0, Math.min(Hpaye, rates.seuil2) - rates.seuil1);
+  const b2 = Math.max(0, Math.min(Hpaye, rates.seuil3) - rates.seuil2);
+  const b3 = Math.max(0, Math.min(Hpaye, rates.seuil4) - rates.seuil3);
+  const b4 = Math.max(0, Hpaye - rates.seuil4); // toutes les heures payées au-delà du seuil 4, jusqu'au plafond
   const bBanque = Math.max(0, H - seuilBanque); // au-delà du plafond payé : versé en banque, non payé ce mois
 
   const payNormal = b0 * rates.tauxHoraire;
@@ -2293,6 +2302,13 @@ function MonCarnetDeBord({
   });
   const [entries, setEntries] = useState([]);
   const [rates, setRates] = useState(DEFAULT_RATES);
+  // Si l'onglet actuellement affiché vient d'être désactivé par l'admin ou
+  // l'utilisateur (Réglages), on revient automatiquement sur Pointage.
+  useEffect(() => {
+    if (tab === "banque" && rates.ongletBanqueActif === false) setTab("pointage");
+    if (tab === "garage" && rates.ongletGarageActif === false) setTab("pointage");
+    if (tab === "carburant" && rates.ongletCarburantActif === false) setTab("pointage");
+  }, [tab, rates.ongletBanqueActif, rates.ongletGarageActif, rates.ongletCarburantActif]);
   const [selectedDate, setSelectedDate] = useState(todayISODate());
   const [loaded, setLoaded] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
@@ -2310,6 +2326,7 @@ function MonCarnetDeBord({
     mouvements: []
   });
   const [primes, setPrimes] = useState({}); // { "2026-07": [{id, label, montant}], ... }
+  const [acomptes, setAcomptes] = useState({}); // { "2026-07": [{id, montant, date}], ... }
   const [planning, setPlanning] = useState({});
   const [statuts, setStatuts] = useState(DEFAULT_STATUTS);
   const [garage, setGarage] = useState(DEFAULT_GARAGE);
@@ -2599,6 +2616,7 @@ function MonCarnetDeBord({
         ...(lire("banque", {}) || {})
       });
       setPrimes(lire("primes", {}) || {});
+      setAcomptes(lire("acomptes", {}) || {});
       setPlanning(lire("planning", {}) || {});
       setStatuts(lire("statuts", DEFAULT_STATUTS));
       const garageBrut = lire("garage", {}) || {};
@@ -2638,6 +2656,7 @@ function MonCarnetDeBord({
       rates: nextRates ?? rates,
       banque,
       primes,
+      acomptes,
       planning,
       statuts,
       garage,
@@ -2652,6 +2671,7 @@ function MonCarnetDeBord({
       storage.set(ns("rates"), donnees.rates);
       storage.set(ns("banque"), banque);
       storage.set(ns("primes"), primes);
+      storage.set(ns("acomptes"), acomptes);
       storage.set(ns("planning"), planning);
       storage.set(ns("statuts"), statuts);
       storage.set(ns("garage"), garage);
@@ -2680,7 +2700,7 @@ function MonCarnetDeBord({
       setSaveStatus("Échec de l'enregistrement");
       setTimeout(() => setSaveStatus(""), 2500);
     }
-  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, categoriesManutention, carburant, theme, publicites, user]);
+  }, [entries, rates, banque, primes, acomptes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, categoriesManutention, carburant, theme, publicites, user]);
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
@@ -2688,7 +2708,7 @@ function MonCarnetDeBord({
     }, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, rates, banque, primes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, categoriesManutention, carburant, theme, publicites, loaded]);
+  }, [entries, rates, banque, primes, acomptes, planning, statuts, garage, categoriesEntretien, categoriesDepannage, categoriesManutention, carburant, theme, publicites, loaded]);
   useEffect(() => {
     const annonces = publicites.annonces || [];
     if (!publicites.actif || annonces.length <= 1) return;
@@ -3453,6 +3473,25 @@ function MonCarnetDeBord({
       [payMonth]: (prev[payMonth] || []).filter(p => p.id !== id)
     }));
   };
+  const acomptesDuMois = acomptes[payMonth] || [];
+  const ajouterAcompte = (montant, date) => {
+    if (!montant) return;
+    setAcomptes(prev => ({
+      ...prev,
+      [payMonth]: [...(prev[payMonth] || []), {
+        id: "acompte-" + Math.random().toString(36).slice(2, 8),
+        montant,
+        date: date || todayISODate()
+      }]
+    }));
+  };
+  const supprimerAcompte = id => {
+    setAcomptes(prev => ({
+      ...prev,
+      [payMonth]: (prev[payMonth] || []).filter(a => a.id !== id)
+    }));
+  };
+  const totalAcomptesDuMois = acomptesDuMois.reduce((s, a) => s + (Number(a.montant) || 0), 0);
   const envoyerPaieEmail = () => {
     const subject = `Carnet de bord — Estimation de paie — ${payMonth}`;
     let body = `Estimation de paie — ${payMonth}\n\n`;
@@ -3800,6 +3839,7 @@ function MonCarnetDeBord({
       mouvements: []
     });
     setPrimes({});
+    setAcomptes({});
     setPlanning({});
     setStatuts(DEFAULT_STATUTS);
     setGarage(DEFAULT_GARAGE);
@@ -3842,19 +3882,19 @@ function MonCarnetDeBord({
     id: "planning",
     label: t("tabs.planning"),
     icon: Calendar
-  }, {
+  }, ...(rates.ongletBanqueActif !== false ? [{
     id: "banque",
     label: t("tabs.banque"),
     icon: Save
-  }, {
+  }] : []), ...(rates.ongletGarageActif !== false ? [{
     id: "garage",
     label: t("tabs.garage"),
     icon: Wrench
-  }, {
+  }] : []), ...(rates.ongletCarburantActif !== false ? [{
     id: "carburant",
     label: t("tabs.carburant"),
     icon: Fuel
-  }, {
+  }] : []), {
     id: "rapports",
     label: t("tabs.rapports"),
     icon: FileText
@@ -5041,6 +5081,28 @@ function MonCarnetDeBord({
   }))))), /*#__PURE__*/React.createElement(FormPrime, {
     onValider: ajouterPrime
   })), /*#__PURE__*/React.createElement("div", {
+    className: "bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs uppercase tracking-wide text-slate-400"
+  }, "Acompte(s) versé(s) ce mois"), acomptesDuMois.length === 0 && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-500"
+  }, "Aucun acompte enregistré."), acomptesDuMois.map(a => /*#__PURE__*/React.createElement("div", {
+    key: a.id,
+    className: "flex items-center justify-between text-sm bg-slate-800/60 rounded-lg px-3 py-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-slate-300"
+  }, a.date), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-sky-400"
+  }, Number(a.montant).toFixed(2), " €"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => supprimerAcompte(a.id),
+    className: "text-rose-400"
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    size: 14
+  }))))), /*#__PURE__*/React.createElement(FormAcompte, {
+    onValider: ajouterAcompte
+  })), /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col gap-1.5 text-sm"
   }, /*#__PURE__*/React.createElement(Ligne, {
     label: t("paie.baseHoraire"),
@@ -5065,13 +5127,16 @@ function MonCarnetDeBord({
   }), /*#__PURE__*/React.createElement(Ligne, {
     label: t("paie.cotisationMutuelle"),
     value: `− ${pay.mutuelle.toFixed(2)} €`
+  }), totalAcomptesDuMois > 0 && /*#__PURE__*/React.createElement(Ligne, {
+    label: `Acompte(s) versé(s) (${acomptesDuMois.length})`,
+    value: `− ${totalAcomptesDuMois.toFixed(2)} €`
   }), /*#__PURE__*/React.createElement("div", {
     className: "border-t border-slate-700 my-1"
   }), /*#__PURE__*/React.createElement(Ligne, {
     label: /*#__PURE__*/React.createElement("b", null, t("paie.totalNetEstime")),
     value: /*#__PURE__*/React.createElement("b", {
       className: "text-amber-400 text-lg"
-    }, pay.netTotal.toFixed(2), " €")
+    }, (pay.netTotal - totalAcomptesDuMois).toFixed(2), " €")
   }), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-500 mt-1 flex items-start gap-1"
   }, /*#__PURE__*/React.createElement(AlertCircle, {
@@ -5262,6 +5327,31 @@ function MonCarnetDeBord({
   })), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-500"
   }, "Valeur libre, indépendante du Mode Routier — pour être alerté avant d'atteindre ta limite personnelle de temps de service.")), /*#__PURE__*/React.createElement(Section, {
+    titre: "Onglets affichés"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-slate-500 -mt-1"
+  }, "Masque les onglets dont tu n'as pas besoin — ils disparaissent de la barre de navigation."), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between text-xs"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-slate-300"
+  }, "💾 Banque (heures)"), /*#__PURE__*/React.createElement(ToggleActif, {
+    value: rates.ongletBanqueActif !== false,
+    onChange: v => updateRate("ongletBanqueActif", v)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between text-xs"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-slate-300"
+  }, "🔧 Garage"), /*#__PURE__*/React.createElement(ToggleActif, {
+    value: rates.ongletGarageActif !== false,
+    onChange: v => updateRate("ongletGarageActif", v)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between text-xs"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-slate-300"
+  }, "⛽ Carburant"), /*#__PURE__*/React.createElement(ToggleActif, {
+    value: rates.ongletCarburantActif !== false,
+    onChange: v => updateRate("ongletCarburantActif", v)
+  }))), /*#__PURE__*/React.createElement(Section, {
     titre: t("sections.apparence")
   }, /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-3 gap-2"
@@ -6065,6 +6155,35 @@ function FormPrime({
   }), /*#__PURE__*/React.createElement("button", {
     onClick: valider,
     className: "bg-emerald-600 text-white text-xs font-semibold rounded-lg px-3"
+  }, "Ajouter"));
+}
+function FormAcompte({
+  onValider
+}) {
+  const [montant, setMontant] = useState("");
+  const [date, setDate] = useState(todayISODate());
+  const valider = () => {
+    if (!montant) return;
+    onValider(montant, date);
+    setMontant("");
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: date,
+    onChange: e => setDate(e.target.value),
+    className: "bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.01",
+    placeholder: "Montant €",
+    value: montant,
+    onChange: e => setMontant(e.target.value),
+    className: "flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: valider,
+    className: "bg-sky-600 text-white text-xs font-semibold rounded-lg px-3"
   }, "Ajouter"));
 }
 function FormPlein({
