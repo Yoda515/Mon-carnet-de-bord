@@ -465,6 +465,13 @@ const DEFAULT_RATES = {
   ongletBanqueActif: true,
   ongletGarageActif: true,
   ongletCarburantActif: true,
+  // Profil Intérimaire — valeurs par défaut reprises d'un bulletin de paie type,
+  // à ajuster selon le contrat de mission de chaque utilisateur.
+  indemniteRepasInterim: 16.36,
+  primeNuitInterimH: 2.48,
+  pourcentageIFM: 10,
+  // Indemnité de Fin de Mission
+  pourcentageICP: 10, // Indemnité Compensatrice de Congés Payés
   // € par mois — déduit après l'impôt
   seuil1: 152,
   // fin taux normal
@@ -524,6 +531,10 @@ const PROFILS_PROFESSIONNELS = [{
   id: "pilote",
   label: "🚗 Voiture pilote",
   description: "Accompagnement de convois, manutention chronométrée, suivi simplifié"
+}, {
+  id: "interim",
+  label: "📋 Intérimaire",
+  description: "Taux horaire brut, indemnité repas, prime de nuit horaire, IFM et ICP calculées automatiquement"
 }];
 const DEFAULT_THEME = {
   accent: "#f59e0b",
@@ -2050,13 +2061,15 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
   let serviceMin = 0,
     nightMin = 0,
     frais = 0,
-    joursFeries = 0;
+    joursFeries = 0,
+    joursTravailles = 0;
   entriesForMonth.forEach(e => {
     const c = computeEntry(e, rates, liveNow);
     serviceMin += c.serviceMin;
     nightMin += c.nightWorkedMin;
     frais += c.frais;
     if (e.jourFerie) joursFeries += 1;
+    if (e.debutService) joursTravailles += 1;
   });
   const H = minutesToHours(serviceMin);
   const nightH = minutesToHours(nightMin);
@@ -2091,13 +2104,30 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
   const payHS25 = b2 * rates.tauxHoraire * tauxHS25;
   const payHS50 = b3 * rates.tauxHoraire * tauxHS50;
   const payHS100 = b4 * rates.tauxHoraire * tauxHS100;
-  const payNight = nightH * rates.tauxHoraire * 0.20; // majoration de nuit, en plus
 
-  const salaireBaseHoraire = payNormal + payEquiv + payHS25 + payHS50 + payHS100 + payNight + payFerie;
+  const estInterim = rates.profilProfessionnel === "interim";
+  // Intérimaire : prime de nuit à taux horaire fixe (ex: 2,48€/h) au lieu de la
+  // majoration en pourcentage, comme indiqué sur un bulletin de paie d'intérim.
+  const payNight = estInterim ? nightH * (Number(rates.primeNuitInterimH) || 0) : nightH * rates.tauxHoraire * 0.20;
+  // Indemnité de repas versée par jour travaillé (profil Intérimaire uniquement)
+  const indemniteRepasTotal = estInterim ? joursTravailles * (Number(rates.indemniteRepasInterim) || 0) : 0;
+
+  const salaireBaseHoraire = payNormal + payEquiv + payHS25 + payHS50 + payHS100 + payNight + payFerie + indemniteRepasTotal;
   const sommePrimes = (primesDuMois || []).reduce((s, p) => s + (Number(p.montant) || 0), 0);
 
+  // Brut avant indemnités de mission = base horaire + frais de route + primes
+  const brutAvantIndemnites = salaireBaseHoraire + frais + sommePrimes;
+
+  // IFM (Indemnité de Fin de Mission) et ICP (Indemnité Compensatrice de Congés
+  // Payés) : pourcentages réglables par l'utilisateur, calculés en cascade comme
+  // sur un bulletin de paie d'intérim (l'ICP se calcule après ajout de l'IFM).
+  const pourcentageIFM = estInterim ? Number(rates.pourcentageIFM) || 0 : 0;
+  const pourcentageICP = estInterim ? Number(rates.pourcentageICP) || 0 : 0;
+  const montantIFM = brutAvantIndemnites * pourcentageIFM / 100;
+  const montantICP = (brutAvantIndemnites + montantIFM) * pourcentageICP / 100;
+
   // Brut total = base horaire + frais de route + primes (tout imposable, selon la demande)
-  const salaireBrut = salaireBaseHoraire + frais + sommePrimes;
+  const salaireBrut = brutAvantIndemnites + montantIFM + montantICP;
   const coefNet = Number(rates.coefNet) || 1;       // ex: 0.78 = 78% du brut, réglable dans Réglages
   const mutuelle = Number(rates.mutuelleCotisation) || 0; // en €/mois
   // Net = Brut × coefficient net/brut, puis déduction de la mutuelle
@@ -2133,7 +2163,13 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
     mutuelle,
     joursFeries,
     heuresFerieTotal,
-    payFerie
+    payFerie,
+    estInterim,
+    joursTravailles,
+    indemniteRepasTotal,
+    montantIFM,
+    montantICP,
+    brutAvantIndemnites
   };
 }
 
@@ -5110,12 +5146,26 @@ function MonCarnetDeBord({
   }), pay.joursFeries > 0 && /*#__PURE__*/React.createElement(Ligne, {
     label: `Jours fériés (${pay.joursFeries} × ${rates.heuresFerie}h)`,
     value: `${pay.payFerie.toFixed(2)} € (${pay.heuresFerieTotal}h payées)`
+  }), pay.estInterim && pay.indemniteRepasTotal > 0 && /*#__PURE__*/React.createElement(Ligne, {
+    label: `Indemnité repas (${pay.joursTravailles} jour(s))`,
+    value: `${pay.indemniteRepasTotal.toFixed(2)} €`
   }), /*#__PURE__*/React.createElement(Ligne, {
     label: t("paie.fraisDeRoute"),
     value: `${pay.frais.toFixed(2)} €`
   }), /*#__PURE__*/React.createElement(Ligne, {
     label: t("paie.primes"),
     value: `${pay.sommePrimes.toFixed(2)} €`
+  }), pay.estInterim && /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-slate-700 my-1"
+  }), pay.estInterim && /*#__PURE__*/React.createElement(Ligne, {
+    label: "Brut avant IFM/ICP",
+    value: `${pay.brutAvantIndemnites.toFixed(2)} €`
+  }), pay.estInterim && /*#__PURE__*/React.createElement(Ligne, {
+    label: `IFM — Indemnité de Fin de Mission (${rates.pourcentageIFM}%)`,
+    value: `+ ${pay.montantIFM.toFixed(2)} €`
+  }), pay.estInterim && /*#__PURE__*/React.createElement(Ligne, {
+    label: `ICP — Indemnité Compensatrice de Congés Payés (${rates.pourcentageICP}%)`,
+    value: `+ ${pay.montantICP.toFixed(2)} €`
   }), /*#__PURE__*/React.createElement("div", {
     className: "border-t border-slate-700 my-1"
   }), /*#__PURE__*/React.createElement(Ligne, {
@@ -5186,7 +5236,31 @@ function MonCarnetDeBord({
     value: rates.heuresFerie,
     onChange: v => updateRate("heuresFerie", v),
     step: "0.5"
-  })), /*#__PURE__*/React.createElement(Section, {
+  })), rates.profilProfessionnel === "interim" && /*#__PURE__*/React.createElement(Section, {
+    titre: "📋 Intérimaire — indemnités de mission"
+  }, /*#__PURE__*/React.createElement(ChampNombre, {
+    label: "Indemnité repas (€/jour travaillé)",
+    value: rates.indemniteRepasInterim,
+    onChange: v => updateRate("indemniteRepasInterim", v),
+    step: "0.01"
+  }), /*#__PURE__*/React.createElement(ChampNombre, {
+    label: "Prime de nuit (€/heure)",
+    value: rates.primeNuitInterimH,
+    onChange: v => updateRate("primeNuitInterimH", v),
+    step: "0.01"
+  }), /*#__PURE__*/React.createElement(ChampNombre, {
+    label: "IFM — Indemnité de Fin de Mission (%)",
+    value: rates.pourcentageIFM,
+    onChange: v => updateRate("pourcentageIFM", v),
+    step: "0.1"
+  }), /*#__PURE__*/React.createElement(ChampNombre, {
+    label: "ICP — Indemnité Compensatrice de Congés Payés (%)",
+    value: rates.pourcentageICP,
+    onChange: v => updateRate("pourcentageICP", v),
+    step: "0.1"
+  }), /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-slate-500"
+  }, "L'IFM (10% en général) compense la précarité de la mission d'intérim. L'ICP (10% en général) remplace les congés payés que tu ne peux pas prendre en intérim. Les deux sont calculées automatiquement sur ton brut, dans l'ordre indiqué sur ton bulletin de paie — modifie ces pourcentages si ton contrat en précise d'autres.")), /*#__PURE__*/React.createElement(Section, {
     titre: t("sections.paliers")
   }, /*#__PURE__*/React.createElement(ChampNombre, {
     label: t("champs.finTauxNormal"),
