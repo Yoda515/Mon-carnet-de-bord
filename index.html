@@ -465,10 +465,8 @@ const DEFAULT_RATES = {
   ongletBanqueActif: true,
   ongletGarageActif: true,
   ongletCarburantActif: true,
-  // Profil Intérimaire — valeurs par défaut reprises d'un bulletin de paie type,
-  // à ajuster selon le contrat de mission de chaque utilisateur.
-  indemniteRepasInterim: 16.36,
-  primeNuitInterimH: 2.48,
+  // Profil Intérimaire — IFM et ICP uniquement (pas de majoration de nuit ni
+  // d'indemnité repas séparée dans ce profil), valeurs par défaut standard.
   pourcentageIFM: 10,
   // Indemnité de Fin de Mission
   pourcentageICP: 10, // Indemnité Compensatrice de Congés Payés
@@ -695,7 +693,7 @@ const TRADUCTIONS = {
       calcule: "Calculé",
       debutPauseN: "Début pause",
       finPauseN: "Fin pause",
-      coupureRepos: "Coupure de repos",
+      coupureRepos: "Coupure de nuit",
       coupureWeekend: "Coupure (week-end)",
       depuisLe: "depuis le",
       enCoursDepuisLe: "en cours depuis le"
@@ -951,7 +949,7 @@ const TRADUCTIONS = {
       calcule: "Calculated",
       debutPauseN: "Start break",
       finPauseN: "End break",
-      coupureRepos: "Rest break",
+      coupureRepos: "Night break",
       coupureWeekend: "Rest break (weekend)",
       depuisLe: "since",
       enCoursDepuisLe: "in progress since"
@@ -1207,7 +1205,7 @@ const TRADUCTIONS = {
       calcule: "Calculated",
       debutPauseN: "Start break",
       finPauseN: "End break",
-      coupureRepos: "Rest break",
+      coupureRepos: "Night break",
       coupureWeekend: "Rest break (weekend)",
       depuisLe: "since",
       enCoursDepuisLe: "in progress since"
@@ -2106,21 +2104,21 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
   const payHS100 = b4 * rates.tauxHoraire * tauxHS100;
 
   const estInterim = rates.profilProfessionnel === "interim";
-  // Intérimaire : prime de nuit à taux horaire fixe (ex: 2,48€/h) au lieu de la
-  // majoration en pourcentage, comme indiqué sur un bulletin de paie d'intérim.
-  const payNight = estInterim ? nightH * (Number(rates.primeNuitInterimH) || 0) : nightH * rates.tauxHoraire * 0.20;
-  // Indemnité de repas versée par jour travaillé (profil Intérimaire uniquement)
-  const indemniteRepasTotal = estInterim ? joursTravailles * (Number(rates.indemniteRepasInterim) || 0) : 0;
+  // Intérimaire : pas de majoration de nuit ni d'indemnité repas — seules l'IFM
+  // et l'ICP s'appliquent, calculées sur le brut de base (heures travaillées).
+  const payNight = estInterim ? 0 : nightH * rates.tauxHoraire * 0.20;
 
-  const salaireBaseHoraire = payNormal + payEquiv + payHS25 + payHS50 + payHS100 + payNight + payFerie + indemniteRepasTotal;
+  const salaireBaseHoraire = payNormal + payEquiv + payHS25 + payHS50 + payHS100 + payNight + payFerie;
   const sommePrimes = (primesDuMois || []).reduce((s, p) => s + (Number(p.montant) || 0), 0);
 
   // Brut avant indemnités de mission = base horaire + frais de route + primes
   const brutAvantIndemnites = salaireBaseHoraire + frais + sommePrimes;
 
   // IFM (Indemnité de Fin de Mission) et ICP (Indemnité Compensatrice de Congés
-  // Payés) : pourcentages réglables par l'utilisateur, calculés en cascade comme
-  // sur un bulletin de paie d'intérim (l'ICP se calcule après ajout de l'IFM).
+  // Payés) : réglées à 10% par défaut, calculées en cascade comme sur un
+  // bulletin de paie d'intérim — l'ICP se calcule sur le brut APRÈS ajout de
+  // l'IFM, méthode standard de calcul en intérim (chaque indemnité s'ajoute
+  // successivement au brut, jamais l'inverse).
   const pourcentageIFM = estInterim ? Number(rates.pourcentageIFM) || 0 : 0;
   const pourcentageICP = estInterim ? Number(rates.pourcentageICP) || 0 : 0;
   const montantIFM = brutAvantIndemnites * pourcentageIFM / 100;
@@ -2166,7 +2164,6 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
     payFerie,
     estInterim,
     joursTravailles,
-    indemniteRepasTotal,
     montantIFM,
     montantICP,
     brutAvantIndemnites
@@ -2296,6 +2293,33 @@ function DateTimeField({
     onChange: e => onChange(e.target.value),
     className: "bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
   }));
+}
+
+/* ---------- Bulle d'explication (aide contextuelle, tactile) ---------- */
+
+function Bulle({
+  texte
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  return /*#__PURE__*/React.createElement("span", {
+    className: "relative inline-block align-middle ml-1"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: e => {
+      e.stopPropagation();
+      setOuvert(o => !o);
+    },
+    className: "text-slate-500 hover:text-amber-400 align-middle",
+    "aria-label": "Aide"
+  }, /*#__PURE__*/React.createElement(AlertCircle, {
+    size: 13
+  })), ouvert && /*#__PURE__*/React.createElement("div", {
+    className: "absolute z-20 left-0 top-5 w-56 bg-slate-800 border border-slate-600 text-slate-200 text-[11px] leading-snug rounded-lg p-2 shadow-lg",
+    onClick: e => e.stopPropagation()
+  }, texte, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setOuvert(false),
+    className: "block mt-1.5 text-amber-400 text-[10px] font-semibold"
+  }, "Fermer")));
 }
 
 /* ---------- Carte de statistique ---------- */
@@ -4211,37 +4235,49 @@ function MonCarnetDeBord({
     className: "flex gap-2 flex-wrap"
   }, rates.profilProfessionnel !== "pilote" && /*#__PURE__*/React.createElement(StatCard, {
     icon: Clock,
-    label: t("pointage.amplitude"),
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, t("pointage.amplitude"), /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Durée totale entre le début et la fin de service, pauses comprises. C'est cette durée qui est encadrée par le Mode Routier (13-15h max selon l'heure de départ)."
+    })),
     value: fmtHM(calc.amplitudeMin),
     sub: calc.enCoursService ? `● ${t("pointage.enCours")}` : undefined,
     accent: "text-amber-400"
   }), /*#__PURE__*/React.createElement(StatCard, {
     icon: Coffee,
-    label: t("pointage.pause"),
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, t("pointage.pause"), /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Temps cumulé de tes coupures (pauses) dans la journée. Ce temps est déduit de l'amplitude pour obtenir le temps de service réellement payé."
+    })),
     value: fmtHM(calc.pauseMin),
     sub: calc.pauseEnCours ? `● ${t("pointage.enCours")}` : undefined,
     accent: "text-sky-400"
   }), /*#__PURE__*/React.createElement(StatCard, {
     icon: Clock,
-    label: t("pointage.tempsService"),
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, t("pointage.tempsService"), /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Amplitude moins les pauses : c'est le temps réellement travaillé, celui qui sert de base au calcul de ta paie dans l'onglet Paie."
+    })),
     value: fmtHM(calc.serviceMin),
     sub: calc.enCoursService ? `● ${t("pointage.enCours")}` : t("pointage.pourLaPaie"),
     accent: "text-emerald-400"
   }), /*#__PURE__*/React.createElement(StatCard, {
     icon: Moon,
-    label: t("pointage.nuit"),
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, t("pointage.nuit"), /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Portion de ton temps de service effectuée entre 21h et 6h. Ces heures sont majorées de 20% dans le calcul de la paie (sauf profil Intérimaire, qui suit son propre calcul IFM/ICP)."
+    })),
     value: fmtHM(calc.nightWorkedMin),
     sub: t("pointage.majore"),
     accent: "text-indigo-400"
   }), rates.profilProfessionnel === "pilote" && /*#__PURE__*/React.createElement(StatCard, {
     icon: Wrench,
-    label: "Manutention",
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, "Manutention", /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Temps passé au chargement, déchargement ou à l'accompagnement de convoi. Il est automatiquement inclus dans ton temps de service — pas besoin de l'ajouter à part."
+    })),
     value: fmtHM(totalManutentionJour),
     sub: manutentionEnCours ? `● ${t("pointage.enCours")}` : "incluse au service",
     accent: "text-amber-500"
   }), coupure && /*#__PURE__*/React.createElement(StatCard, {
     icon: Moon,
-    label: coupure.estWeekend ? t("pointage2.coupureWeekend") : t("pointage2.coupureRepos"),
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, coupure.estWeekend ? t("pointage2.coupureWeekend") : t("pointage2.coupureRepos"), /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Temps écoulé entre la fin de ton dernier service et le début du suivant. En rouge : en dessous du repos minimum réglé dans Réglages ; en vert : conforme."
+    })),
     value: fmtHM(coupure.dureeMin),
     sub: coupure.enCours ? `● ${t("pointage2.enCoursDepuisLe")} ${coupure.depuisDate}` : `${t("pointage2.depuisLe")} ${coupure.depuisDate}`,
     accent: coupure.dureeMin < rates.reposNormal * 60 ? "text-rose-400" : "text-emerald-400"
@@ -5146,9 +5182,6 @@ function MonCarnetDeBord({
   }), pay.joursFeries > 0 && /*#__PURE__*/React.createElement(Ligne, {
     label: `Jours fériés (${pay.joursFeries} × ${rates.heuresFerie}h)`,
     value: `${pay.payFerie.toFixed(2)} € (${pay.heuresFerieTotal}h payées)`
-  }), pay.estInterim && pay.indemniteRepasTotal > 0 && /*#__PURE__*/React.createElement(Ligne, {
-    label: `Indemnité repas (${pay.joursTravailles} jour(s))`,
-    value: `${pay.indemniteRepasTotal.toFixed(2)} €`
   }), /*#__PURE__*/React.createElement(Ligne, {
     label: t("paie.fraisDeRoute"),
     value: `${pay.frais.toFixed(2)} €`
@@ -5201,7 +5234,9 @@ function MonCarnetDeBord({
     className: "flex flex-col gap-4"
   }, /*#__PURE__*/React.createElement(Section, {
     titre: "Profil professionnel"
-  }, /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement(Bulle, {
+    texte: "🚛 Routier : amplitude/temps de service réglementés (13-15h), coupures suivies. 👷 Salarié général : temps simple, postes jour/matin/après-midi/nuit. 🚗 Voiture pilote : manutention chronométrée en plus du service. 📋 Intérimaire : IFM et ICP calculées automatiquement sur le brut."
+  }), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-500 -mt-1"
   }, "Détermine les règles d'amplitude/temps de service et le calcul de paie applicables."), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-2"
@@ -5222,7 +5257,9 @@ function MonCarnetDeBord({
     value: rates.tauxHoraire,
     onChange: v => updateRate("tauxHoraire", v)
   }), /*#__PURE__*/React.createElement(ChampNombre, {
-    label: t("champs.coefNetBrut"),
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, t("champs.coefNetBrut"), /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Pourcentage de ton salaire brut que tu touches réellement en net, après cotisations sociales. Par exemple 0,78 signifie 78% du brut. Regarde un de tes anciens bulletins de paie pour ajuster ce chiffre précisément."
+    })),
     value: rates.coefNet,
     onChange: v => updateRate("coefNet", v),
     step: "0.01"
@@ -5237,18 +5274,8 @@ function MonCarnetDeBord({
     onChange: v => updateRate("heuresFerie", v),
     step: "0.5"
   })), rates.profilProfessionnel === "interim" && /*#__PURE__*/React.createElement(Section, {
-    titre: "📋 Intérimaire — indemnités de mission"
+    titre: "📋 Intérimaire — IFM et ICP"
   }, /*#__PURE__*/React.createElement(ChampNombre, {
-    label: "Indemnité repas (€/jour travaillé)",
-    value: rates.indemniteRepasInterim,
-    onChange: v => updateRate("indemniteRepasInterim", v),
-    step: "0.01"
-  }), /*#__PURE__*/React.createElement(ChampNombre, {
-    label: "Prime de nuit (€/heure)",
-    value: rates.primeNuitInterimH,
-    onChange: v => updateRate("primeNuitInterimH", v),
-    step: "0.01"
-  }), /*#__PURE__*/React.createElement(ChampNombre, {
     label: "IFM — Indemnité de Fin de Mission (%)",
     value: rates.pourcentageIFM,
     onChange: v => updateRate("pourcentageIFM", v),
@@ -5260,7 +5287,7 @@ function MonCarnetDeBord({
     step: "0.1"
   }), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-500"
-  }, "L'IFM (10% en général) compense la précarité de la mission d'intérim. L'ICP (10% en général) remplace les congés payés que tu ne peux pas prendre en intérim. Les deux sont calculées automatiquement sur ton brut, dans l'ordre indiqué sur ton bulletin de paie — modifie ces pourcentages si ton contrat en précise d'autres.")), /*#__PURE__*/React.createElement(Section, {
+  }, "L'IFM (10% en général) compense la précarité de la mission d'intérim. L'ICP (10% en général) remplace les congés payés que tu ne peux pas prendre en intérim. Les deux sont calculées automatiquement sur ton brut, dans l'ordre indiqué sur ton bulletin de paie (l'ICP se calcule après ajout de l'IFM) — modifie ces pourcentages si ton contrat en précise d'autres. Pas de majoration de nuit ni d'indemnité repas séparée dans ce profil : tout est intégré au taux horaire et aux paliers, puis à l'IFM/ICP.")), /*#__PURE__*/React.createElement(Section, {
     titre: t("sections.paliers")
   }, /*#__PURE__*/React.createElement(ChampNombre, {
     label: t("champs.finTauxNormal"),
