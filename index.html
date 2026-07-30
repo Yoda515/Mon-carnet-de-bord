@@ -460,6 +460,8 @@ const DEFAULT_RATES = {
   tauxImposition: 11,
   // % — appliqué sur le brut total (base horaire + frais + primes)
   mutuelleCotisation: 0,
+  tauxImpotRevenu: 5.7,
+  // Impôt sur le revenu personnel (%), distinct du coefficient net/brut — à ajuster selon ta situation
   heuresFerie: 7,
   // Nombre d'heures payées automatiquement pour chaque jour férié pointé
   ongletBanqueActif: true,
@@ -2127,10 +2129,18 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
   // Brut total = base horaire + frais de route + primes (tout imposable, selon la demande)
   const salaireBrut = brutAvantIndemnites + montantIFM + montantICP;
   const coefNet = Number(rates.coefNet) || 1;       // ex: 0.78 = 78% du brut, réglable dans Réglages
-  const mutuelle = Number(rates.mutuelleCotisation) || 0; // en €/mois
-  // Net = Brut × coefficient net/brut, puis déduction de la mutuelle
-  const salaireNet = salaireBrut * coefNet - mutuelle;
-  const netTotal = salaireNet; // les frais sont déjà inclus dans le brut ci-dessus
+  const mutuelle = Number(rates.mutuelleCotisation) || 0; // en €/mois — déduite en tout dernier (après l'acompte)
+  // Net à payer = Brut × coefficient net/brut
+  const netAPayer = salaireBrut * coefNet;
+  // Second impôt, distinct du coefficient : l'impôt sur le revenu personnel
+  // (prélèvement à la source), réglable librement par chacun (ex: 5,7%),
+  // appliqué juste après le passage au net — comme sur un vrai bulletin de paie.
+  const tauxImpotRevenu = Number(rates.tauxImpotRevenu) || 0;
+  const montantImpotRevenu = netAPayer * tauxImpotRevenu / 100;
+  // Ordre voulu : Brut → Net à payer → Impôt sur le revenu → (Acompte, à l'affichage) → Mutuelle en tout dernier
+  const netApresImpot = netAPayer - montantImpotRevenu;
+  const salaireNet = netApresImpot - mutuelle;
+  const netTotal = netApresImpot; // la mutuelle est déduite après l'acompte, au moment de l'affichage
   const brutIndicatif = salaireBrut;
   return {
     H,
@@ -2166,7 +2176,11 @@ function computeMonthPay(entriesForMonth, rates, liveNow, primesDuMois) {
     joursTravailles,
     montantIFM,
     montantICP,
-    brutAvantIndemnites
+    brutAvantIndemnites,
+    tauxImpotRevenu,
+    montantImpotRevenu,
+    netAPayer,
+    netApresImpot
   };
 }
 
@@ -3568,7 +3582,7 @@ function MonCarnetDeBord({
     body += `Salaire brut estimé : ${pay.salaireBrut.toFixed(2)} €\n`;
     body += `Salaire net estimé  : ${pay.salaireNet.toFixed(2)} €\n`;
     body += `Frais de route      : ${pay.frais.toFixed(2)} €\n`;
-    body += `TOTAL NET ESTIMÉ    : ${pay.netTotal.toFixed(2)} €\n\n`;
+    body += `TOTAL NET ESTIMÉ    : ${pay.salaireNet.toFixed(2)} €\n\n`;
     body += `Mon carnet de bord — Yoda 0.1 — YODA515`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
@@ -5206,20 +5220,23 @@ function MonCarnetDeBord({
     value: /*#__PURE__*/React.createElement("b", null, pay.salaireBrut.toFixed(2), " €")
   }), /*#__PURE__*/React.createElement(Ligne, {
     label: `${t("champs.coefNetBrut")} (${Math.round(pay.coefNet * 100)}%)`,
-    value: `${(pay.salaireBrut * pay.coefNet).toFixed(2)} €`
-  }), /*#__PURE__*/React.createElement(Ligne, {
-    label: t("paie.cotisationMutuelle"),
-    value: `− ${pay.mutuelle.toFixed(2)} €`
+    value: `${pay.netAPayer.toFixed(2)} €`
+  }), pay.montantImpotRevenu > 0 && /*#__PURE__*/React.createElement(Ligne, {
+    label: `Impôt sur le revenu (${pay.tauxImpotRevenu}%)`,
+    value: `− ${pay.montantImpotRevenu.toFixed(2)} €`
   }), totalAcomptesDuMois > 0 && /*#__PURE__*/React.createElement(Ligne, {
     label: `Acompte(s) versé(s) (${acomptesDuMois.length})`,
     value: `− ${totalAcomptesDuMois.toFixed(2)} €`
+  }), /*#__PURE__*/React.createElement(Ligne, {
+    label: t("paie.cotisationMutuelle"),
+    value: `− ${pay.mutuelle.toFixed(2)} €`
   }), /*#__PURE__*/React.createElement("div", {
     className: "border-t border-slate-700 my-1"
   }), /*#__PURE__*/React.createElement(Ligne, {
     label: /*#__PURE__*/React.createElement("b", null, t("paie.totalNetEstime")),
     value: /*#__PURE__*/React.createElement("b", {
       className: "text-amber-400 text-lg"
-    }, (pay.netTotal - totalAcomptesDuMois).toFixed(2), " €")
+    }, (pay.netTotal - totalAcomptesDuMois - pay.mutuelle).toFixed(2), " €")
   }), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-500 mt-1 flex items-start gap-1"
   }, /*#__PURE__*/React.createElement(AlertCircle, {
@@ -5263,6 +5280,13 @@ function MonCarnetDeBord({
     value: rates.coefNet,
     onChange: v => updateRate("coefNet", v),
     step: "0.01"
+  }), /*#__PURE__*/React.createElement(ChampNombre, {
+    label: /*#__PURE__*/React.createElement(React.Fragment, null, "Impôt sur le revenu (%)", /*#__PURE__*/React.createElement(Bulle, {
+      texte: "Deuxième déduction, distincte du coefficient net/brut : ton taux de prélèvement à la source personnel (visible sur ton bulletin de paie ou ton avis d'imposition). Il s'applique après le coefficient et la mutuelle. Modifie-le librement selon ta situation."
+    })),
+    value: rates.tauxImpotRevenu,
+    onChange: v => updateRate("tauxImpotRevenu", v),
+    step: "0.1"
   }), /*#__PURE__*/React.createElement(ChampNombre, {
     label: t("champs.cotisationMutuelleMois"),
     value: rates.mutuelleCotisation,
